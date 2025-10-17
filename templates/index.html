@@ -97,23 +97,24 @@
           </div>
           <ul id="selectedItemsList" class="selected-items-list"></ul>
         </aside>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Apply Changes</h2>
-      <p>Select items below and specify tags to add/remove, then click Apply.</p>
-      <div class="grid">
-        <label>Tags to Add (comma/semicolon)
-          <input id="applyAdd" />
-        </label>
-        <label>Tags to Remove (comma/semicolon)
-          <input id="applyRemove" />
-        </label>
-      </div>
-      <div class="row">
-        <button id="btnApply">Apply to Selected</button>
-        <span id="applyStatus"></span>
+        <aside class="apply-panel" aria-label="Apply changes to selected items">
+          <div class="apply-panel-header">
+            <h3 class="apply-panel-title">Apply Changes</h3>
+            <p class="apply-panel-description">Select items and specify tags to add or remove, then click Apply.</p>
+          </div>
+          <div class="apply-panel-body">
+            <label>Tags to Add (comma/semicolon)
+              <input id="applyAdd" />
+            </label>
+            <label>Tags to Remove (comma/semicolon)
+              <input id="applyRemove" />
+            </label>
+          </div>
+          <div class="apply-panel-footer">
+            <button id="btnApply">Apply to Selected</button>
+            <span id="applyStatus" aria-live="polite"></span>
+          </div>
+        </aside>
       </div>
     </section>
   </div>
