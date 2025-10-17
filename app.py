@@ -403,9 +403,70 @@ def api_apply():
     base, api_key = resolve_jellyfin_config(data)
     base, error = _validate_base(base, "/api/apply", data.get("base"))
     changes = data.get("changes") or []
-    logger.info("POST /api/apply base=%s changes=%d", base or "", len(changes))
+    user_id = data.get("userId")
+    logger.info(
+        "POST /api/apply base=%s user=%s changes=%d",
+        base or "",
+        user_id,
+        len(changes),
+    )
     if error is not None:
         return error
+
+    def _apply_tag_update(
+        base_url: str,
+        api_key_value: str,
+        item_id: Optional[str],
+        scoped_user_id: Optional[str],
+        params: Mapping[str, str],
+        action: str,
+    ) -> Optional[Exception]:
+        endpoints = []
+        if scoped_user_id:
+            endpoints.append(
+                (
+                    "user",
+                    f"{base_url}/Users/{scoped_user_id}/Items/{item_id}/Tags",
+                )
+            )
+        endpoints.append(("global", f"{base_url}/Items/{item_id}/Tags"))
+        last_error: Optional[Exception] = None
+        for scope, url in endpoints:
+            scope_label = "user-scoped" if scope == "user" else "global"
+            try:
+                jf_post(url, api_key_value, params=params)
+                if scope == "global" and scoped_user_id and last_error is not None:
+                    logger.info(
+                        "%s for item %s succeeded via global endpoint after user-scoped failure",
+                        action,
+                        item_id,
+                    )
+                else:
+                    logger.debug(
+                        "%s for item %s succeeded via %s endpoint",
+                        action,
+                        item_id,
+                        scope_label,
+                    )
+                return None
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - exercised in tests via fallbacks
+                last_error = exc
+                if scope == "user":
+                    logger.exception(
+                        "User-scoped %s request failed for item %s; attempting global endpoint",
+                        action,
+                        item_id,
+                    )
+                else:
+                    logger.exception(
+                        "Global %s request failed for item %s",
+                        action,
+                        item_id,
+                    )
+        return last_error
+
     results = []
     for ch in changes:
         iid = ch.get("id")
@@ -419,27 +480,19 @@ def api_apply():
         )
         r = {"id": iid, "added": [], "removed": [], "errors": []}
         if adds:
-            try:
-                jf_post(
-                    f"{base}/Items/{iid}/Tags",
-                    api_key,
-                    params={"AddTags": ",".join(adds)},
-                )
+            params = {"AddTags": ",".join(adds)}
+            error = _apply_tag_update(base, api_key, iid, user_id, params, "AddTags")
+            if error is None:
                 r["added"] = adds
-            except Exception as e:
-                r["errors"].append(f"AddTags: {e}")
-                logger.exception("Failed to add tags for item %s", iid)
+            else:
+                r["errors"].append(f"AddTags: {error}")
         if rems:
-            try:
-                jf_post(
-                    f"{base}/Items/{iid}/Tags",
-                    api_key,
-                    params={"RemoveTags": ",".join(rems)},
-                )
+            params = {"RemoveTags": ",".join(rems)}
+            error = _apply_tag_update(base, api_key, iid, user_id, params, "RemoveTags")
+            if error is None:
                 r["removed"] = rems
-            except Exception as e:
-                r["errors"].append(f"RemoveTags: {e}")
-                logger.exception("Failed to remove tags for item %s", iid)
+            else:
+                r["errors"].append(f"RemoveTags: {error}")
         results.append(r)
     logger.info("/api/apply finished processing %d changes", len(results))
     return jsonify({"updated": results})
