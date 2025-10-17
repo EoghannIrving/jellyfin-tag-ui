@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from xml.etree import ElementTree as ET
 
 from flask import Flask, render_template, request, jsonify, send_file
 from flask.typing import ResponseReturnValue
@@ -241,6 +242,7 @@ def jf_update_tags(
     update_endpoint = f"{base}/Items/{item_id}"
     logger.debug("Fetching item %s for tag update", fetch_endpoint)
     item = jf_get(fetch_endpoint, api_key)
+    item_path = item.get("Path")
 
     existing_tags = item_tags(item)
     logger.debug("Existing tags for %s: %s", item_id, existing_tags)
@@ -270,7 +272,117 @@ def jf_update_tags(
     )
 
     jf_put_with_fallback(update_endpoint, api_key, json=payload)
+
+    if not item_path:
+        logger.warning("Item %s missing Path; skipping NFO write", item_id)
+        return final_tags
+
+    try:
+        nfo_path = Path(item_path).with_suffix(".nfo")
+    except TypeError:
+        logger.warning(
+            "Item %s has non-string Path %r; skipping NFO write", item_id, item_path
+        )
+        return final_tags
+
+    metadata: Dict[str, Any] = {
+        "Name": payload.get("Name") or item.get("Name"),
+        "SortName": payload.get("SortName") or item.get("SortName"),
+        "Overview": payload.get("Overview") or item.get("Overview"),
+        "Genres": payload.get("Genres") or item.get("Genres") or [],
+        "Tags": final_tags,
+        "Taglines": payload.get("Taglines") or item.get("Taglines") or [],
+        "People": payload.get("People") or item.get("People") or [],
+        "Studios": payload.get("Studios") or item.get("Studios") or [],
+        "ProviderIds": payload.get("ProviderIds") or item.get("ProviderIds") or {},
+        "CommunityRating": payload.get("CommunityRating")
+        or item.get("CommunityRating"),
+        "CriticRating": payload.get("CriticRating") or item.get("CriticRating"),
+        "OfficialRating": payload.get("OfficialRating") or item.get("OfficialRating"),
+        "ProductionYear": payload.get("ProductionYear") or item.get("ProductionYear"),
+        "PremiereDate": payload.get("PremiereDate") or item.get("PremiereDate"),
+        "EndDate": payload.get("EndDate") or item.get("EndDate"),
+    }
+
+    xml_content = render_nfo(metadata)
+
+    nfo_parent = nfo_path.parent
+    try:
+        nfo_parent.mkdir(parents=True, exist_ok=True)
+        nfo_path.write_text(xml_content, encoding="utf-8")
+    except OSError as error:
+        logger.error(
+            "Failed to write NFO for item %s to %s: %s", item_id, nfo_path, error
+        )
+
     return final_tags
+
+
+def render_nfo(metadata: Mapping[str, Any]) -> str:
+    root = ET.Element("item")
+
+    def _set_text(tag: str, value: Optional[Any]) -> None:
+        if value is None:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        ET.SubElement(root, tag).text = text
+
+    _set_text("title", metadata.get("Name"))
+    _set_text("sorttitle", metadata.get("SortName"))
+    _set_text("plot", metadata.get("Overview"))
+    taglines = metadata.get("Taglines") or []
+    if taglines:
+        _set_text("tagline", taglines[0])
+    _set_text("communityrating", metadata.get("CommunityRating"))
+    _set_text("criticrating", metadata.get("CriticRating"))
+    _set_text("mpaa", metadata.get("OfficialRating"))
+    _set_text("year", metadata.get("ProductionYear"))
+    _set_text("premiered", metadata.get("PremiereDate"))
+    _set_text("ended", metadata.get("EndDate"))
+
+    for genre in metadata.get("Genres") or []:
+        _set_text("genre", genre)
+
+    for tag in metadata.get("Tags") or []:
+        _set_text("tag", tag)
+
+    for tagline in taglines[1:]:
+        _set_text("tagline", tagline)
+
+    people = metadata.get("People") or []
+    if people:
+        people_el = ET.SubElement(root, "people")
+        for person in people:
+            if not isinstance(person, Mapping):
+                continue
+            entry = ET.SubElement(people_el, "person")
+            _person_name = person.get("Name")
+            if _person_name:
+                ET.SubElement(entry, "name").text = str(_person_name)
+            if person.get("Type"):
+                ET.SubElement(entry, "type").text = str(person.get("Type"))
+            if person.get("Role"):
+                ET.SubElement(entry, "role").text = str(person.get("Role"))
+
+    studios = metadata.get("Studios") or []
+    for studio in studios:
+        if isinstance(studio, Mapping):
+            name = studio.get("Name")
+        else:
+            name = studio
+        _set_text("studio", name)
+
+    provider_ids = metadata.get("ProviderIds") or {}
+    if isinstance(provider_ids, Mapping):
+        for key, value in provider_ids.items():
+            if value:
+                unique = ET.SubElement(root, "uniqueid")
+                unique.text = str(value)
+                unique.set("type", str(key))
+
+    return ET.tostring(root, encoding="unicode")
 
 
 def normalize_tags(tag_string):
