@@ -435,6 +435,7 @@ function applySelectionFromCheckbox(cb){
   if(!cb){ return; }
   const id = cb.dataset.id;
   if(!id){ return; }
+  const row = cb.closest("tr");
   if(cb.checked){
     searchState.selectedIds.add(id);
     searchState.selectedDetails.set(id, {
@@ -442,9 +443,15 @@ function applySelectionFromCheckbox(cb){
       name: cb.dataset.name || "",
       type: cb.dataset.type || "",
     });
+    if(row){
+      row.classList.add("is-selected");
+    }
   } else {
     searchState.selectedIds.delete(id);
     searchState.selectedDetails.delete(id);
+    if(row){
+      row.classList.remove("is-selected");
+    }
   }
   updateSelectionSummary();
 }
@@ -460,13 +467,23 @@ function renderResults(items){
     return;
   }
   const rows = items.map(it => {
+    const safeId = escapeHtml(it.Id || "");
+    const isSelected = searchState.selectedIds.has(it.Id);
+    const attributes = [];
+    if(isSelected){
+      attributes.push('class="is-selected"');
+    }
+    if(safeId){
+      attributes.push(`data-id="${safeId}"`);
+    }
+    const attrString = attributes.length ? ` ${attributes.join(" ")}` : "";
     const safeType = escapeHtml(it.Type || "");
     const safeName = escapeHtml(it.Name || "");
     const safePath = escapeHtml(it.Path || "");
     const safeTags = escapeHtml((it.Tags || []).join("; "));
     const releaseLabel = escapeHtml(formatReleaseLabel(it));
     return `
-    <tr>
+    <tr${attrString}>
       <td>${checkbox(it)}</td>
       <td>${safeType}</td>
       <td>${safeName}</td>
@@ -488,6 +505,10 @@ function renderResults(items){
   const rowCheckboxes = getResultRowCheckboxes();
 
   rowCheckboxes.forEach(cb => {
+    const row = cb.closest("tr");
+    if(row){
+      row.classList.toggle("is-selected", cb.checked);
+    }
     if(cb.checked){
       const id = cb.dataset.id;
       if(id){
