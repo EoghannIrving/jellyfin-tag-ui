@@ -210,6 +210,71 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["limit"], 100)
 
+    def test_api_items_collects_matches_across_pages(self):
+        starts = []
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+        ):
+            starts.append(start)
+            if start == 0:
+                return {
+                    "Items": [
+                        {
+                            "Id": "first",
+                            "Type": "Movie",
+                            "Name": "First",
+                            "Path": "/first.mkv",
+                            "Tags": ["Other"],
+                        }
+                    ],
+                    "TotalRecordCount": 2,
+                }
+            if start == 1:
+                return {
+                    "Items": [
+                        {
+                            "Id": "match",
+                            "Type": "Movie",
+                            "Name": "Match",
+                            "Path": "/match.mkv",
+                            "Tags": ["Match"],
+                        }
+                    ],
+                    "TotalRecordCount": 2,
+                }
+            return {"Items": [], "TotalRecordCount": 2}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": "Match",
+                    "limit": 1,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertGreaterEqual(len(starts), 2)
+        self.assertEqual(data["TotalMatchCount"], 1)
+        self.assertEqual(data["ReturnedCount"], 1)
+        self.assertEqual(len(data["Items"]), 1)
+        self.assertEqual(data["Items"][0]["Id"], "match")
+
 
 class ApiExportFieldsTest(unittest.TestCase):
     def setUp(self):
