@@ -219,7 +219,9 @@ function renderTagButtons(tags){
 }
 
 function buildSearchBody(startIndex){
-  const types = splitTags(val("types"));
+  const typesInput = val("types");
+  const parsedTypes = splitTags(typesInput);
+  const types = parsedTypes.length > 0 ? parsedTypes : null;
   return {
     base: val("base"),
     apiKey: val("apiKey"),
@@ -235,11 +237,12 @@ function buildSearchBody(startIndex){
 }
 
 function buildSearchQueryKey(body){
+  const types = Array.isArray(body.types) && body.types.length > 0 ? body.types : null;
   return JSON.stringify({
     base: body.base,
     userId: body.userId,
     libraryId: body.libraryId,
-    types: body.types,
+    types,
     includeTags: body.includeTags,
     excludeTags: body.excludeTags,
     excludeCollections: body.excludeCollections,

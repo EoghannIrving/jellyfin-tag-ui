@@ -137,6 +137,27 @@ def _is_empty_value(value: Any) -> bool:
     return False
 
 
+def normalize_item_types(raw_types: Any) -> List[str]:
+    if raw_types is None:
+        return []
+
+    if isinstance(raw_types, str):
+        candidates: Sequence[Any] = [raw_types]
+    elif isinstance(raw_types, Sequence) and not isinstance(
+        raw_types, (str, bytes, bytearray)
+    ):
+        candidates = list(raw_types)
+    else:
+        candidates = [raw_types]
+
+    normalized: List[str] = []
+    for value in candidates:
+        text = str(value or "").strip()
+        if text:
+            normalized.append(text)
+    return normalized
+
+
 def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
     for field in UPDATE_FIELDS:
@@ -262,14 +283,16 @@ def page_items(
     limit=200,
     exclude_types: Optional[Sequence[str]] = None,
 ):
+    normalized_types = normalize_item_types(include_types)
     params = {
         "ParentId": lib_id,
         "Recursive": "true",
-        "IncludeItemTypes": ",".join(include_types),
         "Fields": ",".join(fields),
         "StartIndex": start_index,
         "Limit": limit,
     }
+    if normalized_types:
+        params["IncludeItemTypes"] = ",".join(normalized_types)
     if exclude_types:
         params["ExcludeItemTypes"] = ",".join(exclude_types)
     endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
@@ -321,7 +344,7 @@ def api_tags():
     base, error = _validate_base(base, "/api/tags", data.get("base"))
     lib_id = data.get("libraryId")
     user_id = data.get("userId")
-    include_types = data.get("types") or ["Movie", "Series", "Episode"]
+    include_types = normalize_item_types(data.get("types"))
     logger.info(
         "POST /api/tags base=%s library=%s user=%s include_types=%s",
         base or "",
@@ -336,14 +359,13 @@ def api_tags():
     # 1) Preferred: user-scoped tag endpoint (some Jellyfin builds require this)
     if user_id:
         try:
+            params = {"ParentId": lib_id, "Recursive": "true"}
+            if include_types:
+                params["IncludeItemTypes"] = ",".join(include_types)
             res = jf_get(
                 f"{base}/Users/{user_id}/Items/Tags",
                 api_key,
-                params={
-                    "ParentId": lib_id,
-                    "Recursive": "true",
-                    "IncludeItemTypes": ",".join(include_types),
-                },
+                params=params,
             )
             names = sorted(
                 [x.get("Name", "") for x in res.get("Items", []) if x.get("Name")],
@@ -417,7 +439,7 @@ def api_items():
     base, error = _validate_base(base, "/api/items", data.get("base"))
     user_id = data.get("userId")
     lib_id = data.get("libraryId")
-    include_types = data.get("types") or ["Movie", "Series", "Episode"]
+    include_types = normalize_item_types(data.get("types"))
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
     exclude_collections = bool(data.get("excludeCollections"))
@@ -531,7 +553,7 @@ def api_export():
     base, error = _validate_base(base, "/api/export", data.get("base"))
     user_id = data.get("userId")
     lib_id = data.get("libraryId")
-    include_types = data.get("types") or ["Movie", "Series", "Episode"]
+    include_types = normalize_item_types(data.get("types"))
     exclude_collections = bool(data.get("excludeCollections"))
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
     logger.info(

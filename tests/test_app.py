@@ -210,6 +210,55 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["limit"], 100)
 
+    def test_api_items_includes_all_types_when_filter_blank(self):
+        captured_params = []
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            captured_params.append(dict(params or {}))
+            if len(captured_params) == 1:
+                return {
+                    "Items": [
+                        {
+                            "Id": "movie-1",
+                            "Type": "Movie",
+                            "Name": "Movie 1",
+                            "Path": "/movie-1.mkv",
+                            "Tags": ["Alpha"],
+                        },
+                        {
+                            "Id": "series-1",
+                            "Type": "Series",
+                            "Name": "Series 1",
+                            "Path": "/series-1.mkv",
+                            "Tags": ["Beta"],
+                        },
+                    ],
+                    "TotalRecordCount": 2,
+                }
+            return {"Items": [], "TotalRecordCount": 2}
+
+        with patch("app.jf_get", side_effect=fake_jf_get):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": [],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["ReturnedCount"], 2)
+        self.assertEqual(
+            [item["Id"] for item in data["Items"]], ["movie-1", "series-1"]
+        )
+        self.assertTrue(captured_params)
+        for params in captured_params:
+            self.assertNotIn("IncludeItemTypes", params)
+
     def test_api_items_collects_matches_across_pages(self):
         starts = []
 
