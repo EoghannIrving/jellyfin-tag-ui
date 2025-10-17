@@ -18,13 +18,53 @@ function optionList(arr, valueKey, textKey){
   return arr.map(o => `<option value="${o[valueKey]}">${o[textKey] || o[valueKey]}</option>`).join("");
 }
 
+const SERVER_CONFIG_ERRORS = {
+  missingBoth: "Enter the Jellyfin base URL and API key.",
+  missingBase: "Enter the Jellyfin base URL.",
+  missingApiKey: "Enter the Jellyfin API key.",
+};
+const SERVER_CONFIG_ERROR_MESSAGES = new Set(Object.values(SERVER_CONFIG_ERRORS));
+
+function validateServerConfig(){
+  const baseInput = document.getElementById("base");
+  const apiKeyInput = document.getElementById("apiKey");
+  const baseValue = baseInput ? baseInput.value.trim() : "";
+  const apiKeyValue = apiKeyInput ? apiKeyInput.value.trim() : "";
+  const missingBase = !baseValue;
+  const missingApiKey = !apiKeyValue;
+
+  if(!missingBase && !missingApiKey){
+    return "";
+  }
+
+  if(missingBase && baseInput){
+    baseInput.focus();
+  } else if(missingApiKey && apiKeyInput){
+    apiKeyInput.focus();
+  }
+
+  if(missingBase && missingApiKey){
+    return SERVER_CONFIG_ERRORS.missingBoth;
+  }
+  if(missingBase){
+    return SERVER_CONFIG_ERRORS.missingBase;
+  }
+  return SERVER_CONFIG_ERRORS.missingApiKey;
+}
+
 const btnUsers = document.getElementById("btnUsers");
 const btnLibs = document.getElementById("btnLibs");
+const btnTags = document.getElementById("btnTags");
+const btnSearch = document.getElementById("btnSearch");
+const btnExport = document.getElementById("btnExport");
+const btnApply = document.getElementById("btnApply");
 const userSelect = document.getElementById("userId");
 const librarySelect = document.getElementById("libraryId");
 const sortSelect = document.getElementById("sortOption");
 const userStatusEl = document.getElementById("userStatus");
 const libraryStatusEl = document.getElementById("libraryStatus");
+const resultSummaryEl = document.getElementById("resultSummary");
+const applyStatusEl = document.getElementById("applyStatus");
 const searchState = {
   startIndex: 0,
   limit: 100,
@@ -568,6 +608,12 @@ function updatePaginationControls(returned, filteredTotal){
 if(btnUsers){
   btnUsers.addEventListener("click", async ()=>{
     if(!userSelect){ return; }
+    const validationMessage = validateServerConfig();
+    if(validationMessage){
+      setStatus(userStatusEl, validationMessage);
+      return;
+    }
+    setStatus(userStatusEl, "");
     setButtonLoading(btnUsers, true, "Loading...");
     setStatus(userStatusEl, "Loading users…");
     setSelectPlaceholder(userSelect, "Loading users…");
@@ -627,12 +673,18 @@ if(userSelect){
 if(btnLibs){
   btnLibs.addEventListener("click", async ()=>{
     if(!librarySelect || !userSelect){ return; }
+    const validationMessage = validateServerConfig();
+    if(validationMessage){
+      setStatus(libraryStatusEl, validationMessage);
+      return;
+    }
     const userId = userSelect.value;
     if(!userId){
       setStatus(libraryStatusEl, "Select a user first.");
       userSelect.focus();
       return;
     }
+    setStatus(libraryStatusEl, "");
     setButtonLoading(btnLibs, true, "Loading...");
     setStatus(libraryStatusEl, "Loading libraries…");
     setSelectPlaceholder(librarySelect, "Loading libraries…");
@@ -660,37 +712,44 @@ if(btnLibs){
   });
 }
 
-document.getElementById("btnTags").addEventListener("click", async ()=>{
-  const body = {
-    base: val("base"),
-    apiKey: val("apiKey"),
-    userId: document.getElementById("userId").value,
-    libraryId: document.getElementById("libraryId").value,
-    types: splitTags(val("types"))
-  };
-  setHtml("tagList", "Loading tags...");
-  try {
-    const data = await api("/api/tags", body);
-    allTags = data.tags || [];
-    const available = new Set(allTags);
-    let removed = false;
-    Array.from(tagStates.keys()).forEach(tag => {
-      if(!available.has(tag)){
-        tagStates.delete(tag);
-        removed = true;
+if(btnTags){
+  btnTags.addEventListener("click", async ()=>{
+    const validationMessage = validateServerConfig();
+    if(validationMessage){
+      setHtml("tagList", escapeHtml(validationMessage));
+      return;
+    }
+    const body = {
+      base: val("base"),
+      apiKey: val("apiKey"),
+      userId: document.getElementById("userId").value,
+      libraryId: document.getElementById("libraryId").value,
+      types: splitTags(val("types"))
+    };
+    setHtml("tagList", "Loading tags...");
+    try {
+      const data = await api("/api/tags", body);
+      allTags = data.tags || [];
+      const available = new Set(allTags);
+      let removed = false;
+      Array.from(tagStates.keys()).forEach(tag => {
+        if(!available.has(tag)){
+          tagStates.delete(tag);
+          removed = true;
+        }
+      });
+      if(removed){
+        updateTagActionSummary();
       }
-    });
-    if(removed){
+      renderTagButtons(filterTagsByQuery(allTags, currentTagSearchQuery()));
+    } catch (e) {
+      allTags = [];
+      tagStates.clear();
+      setHtml("tagList", `Error loading tags: ${e.message}`);
       updateTagActionSummary();
     }
-    renderTagButtons(filterTagsByQuery(allTags, currentTagSearchQuery()));
-  } catch (e) {
-    allTags = [];
-    tagStates.clear();
-    setHtml("tagList", `Error loading tags: ${e.message}`);
-    updateTagActionSummary();
-  }
-});
+  });
+}
 
 function normalizeTagList(tags) {
   if (!Array.isArray(tags)) {
@@ -908,6 +967,11 @@ if(tagSearchInput){
 }
 
 async function search({startIndex, reset = false} = {}){
+  const validationMessage = validateServerConfig();
+  if(validationMessage){
+    setHtml("resultSummary", escapeHtml(validationMessage));
+    return;
+  }
   const previousStartIndex = searchState.startIndex;
   const previousQueryKey = searchState.queryKey;
   const previousTotal = searchState.total;
@@ -981,7 +1045,16 @@ async function search({startIndex, reset = false} = {}){
   }
 }
 
-document.getElementById("btnSearch").addEventListener("click", ()=>search({startIndex: 0, reset: true}));
+if(btnSearch){
+  btnSearch.addEventListener("click", () => {
+    const validationMessage = validateServerConfig();
+    if(validationMessage){
+      setHtml("resultSummary", escapeHtml(validationMessage));
+      return;
+    }
+    search({startIndex: 0, reset: true});
+  });
+}
 
 if(paginationControls.prev){
   paginationControls.prev.addEventListener("click", () => {
@@ -1006,91 +1079,111 @@ updateSelectionSummary();
 updatePaginationControls(0, 0);
 updateTagActionSummary();
 
-document.getElementById("btnExport").addEventListener("click", async ()=>{
-  const body = {
-    base: val("base"),
-    apiKey: val("apiKey"),
-    userId: document.getElementById("userId").value,
-    libraryId: document.getElementById("libraryId").value,
-    types: splitTags(val("types")),
-    excludeCollections: document.getElementById("excludeCollections").checked
-  };
-  const sortKey = getSelectedSortOptionKey();
-  const sortConfig = getSortOptionConfig(sortKey);
-  body.sortBy = sortConfig.sortBy;
-  body.sortOrder = sortConfig.sortOrder;
-  const res = await fetch("/api/export", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
-  if(!res.ok){ alert("Export failed"); return; }
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "tags_export.csv";
-  document.body.appendChild(a); a.click(); a.remove();
-  window.URL.revokeObjectURL(url);
-});
-
-document.getElementById("btnApply").addEventListener("click", async ()=>{
-  const adds = getChipTags("add");
-  const rems = getChipTags("remove");
-  const selectedIds = Array.from(searchState.selectedIds);
-  if(selectedIds.length === 0){ alert("No items selected"); return; }
-
-  const selectedDetails = selectedIds.map(id => {
-    const stored = searchState.selectedDetails.get(id) || searchState.itemsById.get(id) || {};
-    const name = stored.name ?? stored.Name ?? "";
-    const type = stored.type ?? stored.Type ?? "";
-    return { id, name, type };
+if(btnExport){
+  btnExport.addEventListener("click", async ()=>{
+    const validationMessage = validateServerConfig();
+    if(validationMessage){
+      setHtml("resultSummary", escapeHtml(validationMessage));
+      return;
+    }
+    if(resultSummaryEl && SERVER_CONFIG_ERROR_MESSAGES.has(resultSummaryEl.textContent.trim())){
+      setHtml("resultSummary", "");
+    }
+    const body = {
+      base: val("base"),
+      apiKey: val("apiKey"),
+      userId: document.getElementById("userId").value,
+      libraryId: document.getElementById("libraryId").value,
+      types: splitTags(val("types")),
+      excludeCollections: document.getElementById("excludeCollections").checked
+    };
+    const sortKey = getSelectedSortOptionKey();
+    const sortConfig = getSortOptionConfig(sortKey);
+    body.sortBy = sortConfig.sortBy;
+    body.sortOrder = sortConfig.sortOrder;
+    const res = await fetch("/api/export", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    if(!res.ok){ alert("Export failed"); return; }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "tags_export.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    window.URL.revokeObjectURL(url);
   });
-  const detailLookup = new Map(selectedDetails.map(item => [item.id, item]));
+}
 
-  const body = {
-    base: val("base"),
-    apiKey: val("apiKey"),
-    userId: document.getElementById("userId").value,
-    changes: selectedDetails.map(item => ({id: item.id, add: adds, remove: rems}))
-  };
-  const applyButton = document.getElementById("btnApply");
-  applyButton.disabled = true;
-  setHtml("applyStatus", "Applying...");
-  try{
-    const data = await api("/api/apply", body);
-    const updates = data.updated || [];
-    const successes = updates.filter(u => !(u.errors || []).length).length;
-    const failures = updates.length - successes;
-    const summaryParts = [];
-    if(successes){ summaryParts.push(`${successes} successful`); }
-    if(failures){ summaryParts.push(`${failures} failed`); }
-    const summaryText = summaryParts.length ? summaryParts.join(", ") : "No changes applied";
-    const detailItems = updates.map(update => {
-      const errors = update.errors || [];
-      const added = update.added || [];
-      const removed = update.removed || [];
-      const meta = detailLookup.get(update.id) || {name: "", type: ""};
-      const hasName = meta.name && meta.name !== update.id;
-      const itemLabel = hasName
-        ? `${escapeHtml(meta.name)} (${escapeHtml(update.id)})`
-        : escapeHtml(update.id);
-      const changeDescriptions = [];
-      if(added.length){ changeDescriptions.push(`added: ${escapeHtml(added.join(", "))}`); }
-      if(removed.length){ changeDescriptions.push(`removed: ${escapeHtml(removed.join(", "))}`); }
-      const changeDetail = changeDescriptions.length ? `<div>${changeDescriptions.join("; ")}</div>` : "";
-      const errorDetail = errors.length ? `<ul>${errors.map(err => `<li>${escapeHtml(err)}</li>`).join("")}</ul>` : "";
-      const typeLabel = meta.type ? ` <span class="apply-type">[${escapeHtml(meta.type)}]</span>` : "";
-      const statusIcon = errors.length ? "❌" : "✅";
-      return [
-        `<li class="${errors.length ? "apply-error" : "apply-success"}">`,
-        `${statusIcon} <strong>${itemLabel}</strong>${typeLabel}`,
-        changeDetail,
-        errorDetail,
-        "</li>",
-      ].join("");
-    }).join("");
-    const detailsHtml = detailItems ? `<ul class="apply-results">${detailItems}</ul>` : "";
-    setHtml("applyStatus", `<div>${escapeHtml(summaryText)}</div>${detailsHtml}`);
-    await search({startIndex: 0, reset: true});
-  }catch(e){
-    setHtml("applyStatus", "Error: " + escapeHtml(e.message));
-  }finally{
-    applyButton.disabled = false;
-  }
-});
+if(btnApply){
+  btnApply.addEventListener("click", async ()=>{
+    const validationMessage = validateServerConfig();
+    if(validationMessage){
+      setHtml("applyStatus", escapeHtml(validationMessage));
+      return;
+    }
+    if(applyStatusEl && SERVER_CONFIG_ERROR_MESSAGES.has((applyStatusEl.textContent || "").trim())){
+      setHtml("applyStatus", "");
+    }
+    const adds = getChipTags("add");
+    const rems = getChipTags("remove");
+    const selectedIds = Array.from(searchState.selectedIds);
+    if(selectedIds.length === 0){ alert("No items selected"); return; }
+
+    const selectedDetails = selectedIds.map(id => {
+      const stored = searchState.selectedDetails.get(id) || searchState.itemsById.get(id) || {};
+      const name = stored.name ?? stored.Name ?? "";
+      const type = stored.type ?? stored.Type ?? "";
+      return { id, name, type };
+    });
+    const detailLookup = new Map(selectedDetails.map(item => [item.id, item]));
+
+    const body = {
+      base: val("base"),
+      apiKey: val("apiKey"),
+      userId: document.getElementById("userId").value,
+      changes: selectedDetails.map(item => ({id: item.id, add: adds, remove: rems}))
+    };
+    const applyButton = btnApply;
+    applyButton.disabled = true;
+    setHtml("applyStatus", "Applying...");
+    try{
+      const data = await api("/api/apply", body);
+      const updates = data.updated || [];
+      const successes = updates.filter(u => !(u.errors || []).length).length;
+      const failures = updates.length - successes;
+      const summaryParts = [];
+      if(successes){ summaryParts.push(`${successes} successful`); }
+      if(failures){ summaryParts.push(`${failures} failed`); }
+      const summaryText = summaryParts.length ? summaryParts.join(", ") : "No changes applied";
+      const detailItems = updates.map(update => {
+        const errors = update.errors || [];
+        const added = update.added || [];
+        const removed = update.removed || [];
+        const meta = detailLookup.get(update.id) || {name: "", type: ""};
+        const hasName = meta.name && meta.name !== update.id;
+        const itemLabel = hasName
+          ? `${escapeHtml(meta.name)} (${escapeHtml(update.id)})`
+          : escapeHtml(update.id);
+        const changeDescriptions = [];
+        if(added.length){ changeDescriptions.push(`added: ${escapeHtml(added.join(", "))}`); }
+        if(removed.length){ changeDescriptions.push(`removed: ${escapeHtml(removed.join(", "))}`); }
+        const changeDetail = changeDescriptions.length ? `<div>${changeDescriptions.join("; ")}</div>` : "";
+        const errorDetail = errors.length ? `<ul>${errors.map(err => `<li>${escapeHtml(err)}</li>`).join("")}</ul>` : "";
+        const typeLabel = meta.type ? ` <span class="apply-type">[${escapeHtml(meta.type)}]</span>` : "";
+        const statusIcon = errors.length ? "❌" : "✅";
+        return [
+          `<li class="${errors.length ? "apply-error" : "apply-success"}">`,
+          `${statusIcon} <strong>${itemLabel}</strong>${typeLabel}`,
+          changeDetail,
+          errorDetail,
+          "</li>",
+        ].join("");
+      }).join("");
+      const detailsHtml = detailItems ? `<ul class="apply-results">${detailItems}</ul>` : "";
+      setHtml("applyStatus", `<div>${escapeHtml(summaryText)}</div>${detailsHtml}`);
+      await search({startIndex: 0, reset: true});
+    }catch(e){
+      setHtml("applyStatus", "Error: " + escapeHtml(e.message));
+    }finally{
+      applyButton.disabled = false;
+    }
+  });
+}
