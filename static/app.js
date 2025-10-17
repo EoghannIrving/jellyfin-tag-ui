@@ -111,6 +111,7 @@ const tagSearchInput = document.getElementById("tagSearch");
 const tagActionSummaryEl = document.getElementById("tagActionSummary");
 const selectedItemsListEl = document.getElementById("selectedItemsList");
 const selectedItemsPanelEl = document.getElementById("selectedItemsPanel");
+const clearSelectionButton = document.getElementById("btnClearSelection");
 const chipFields = {
   add: {
     input: document.getElementById("applyAdd"),
@@ -405,6 +406,9 @@ function updateSelectionSummary(){
     ? "No items selected"
     : `${selected} item${selected === 1 ? "" : "s"} selected`;
   setHtml("selectionSummary", label);
+  if(clearSelectionButton){
+    clearSelectionButton.disabled = selected === 0;
+  }
   renderSelectedItemsList();
 }
 
@@ -897,6 +901,27 @@ if(selectedItemsPanelEl){
       searchState.selectedDetails.delete(id);
       updateSelectionSummary();
     }
+  });
+}
+
+if(clearSelectionButton){
+  clearSelectionButton.addEventListener("click", () => {
+    if(!searchState.selectedIds.size){ return; }
+    searchState.selectedIds.clear();
+    searchState.selectedDetails.clear();
+    const rowCheckboxes = getResultRowCheckboxes();
+    rowCheckboxes.forEach((cb) => {
+      cb.checked = false;
+      const row = cb.closest("tr");
+      if(row){
+        row.classList.remove("is-selected");
+      }
+    });
+    const selAll = document.getElementById("selAll");
+    if(selAll){
+      updateSelectAllState(selAll, rowCheckboxes);
+    }
+    updateSelectionSummary();
   });
 }
 
