@@ -54,6 +54,7 @@ function escapeHtml(value) {
 const tagStates = new Map();
 let allTags = [];
 const tagSearchInput = document.getElementById("tagSearch");
+const tagActionSummaryEl = document.getElementById("tagActionSummary");
 
 const TAG_STATE_CONFIG = {
   "": {
@@ -75,6 +76,29 @@ const TAG_STATE_CONFIG = {
     label: (tag) => `Will remove tag ${tag}`,
   },
 };
+
+function getTagActionCounts(){
+  let add = 0;
+  let remove = 0;
+  tagStates.forEach((state) => {
+    if(state === "add"){ add += 1; }
+    if(state === "remove"){ remove += 1; }
+  });
+  return {add, remove};
+}
+
+function updateTagActionSummary(){
+  if(!tagActionSummaryEl){ return; }
+  const {add, remove} = getTagActionCounts();
+  if(add === 0 && remove === 0){
+    tagActionSummaryEl.textContent = "No tag changes selected";
+    return;
+  }
+  const parts = [];
+  parts.push(`${add} to add`);
+  parts.push(`${remove} to remove`);
+  tagActionSummaryEl.textContent = parts.join(" · ");
+}
 
 function applyTagState(button, state) {
   const config = TAG_STATE_CONFIG[state] || TAG_STATE_CONFIG[""];
@@ -112,6 +136,7 @@ function renderTagButtons(tags){
   if(!tags.length){
     const hasQuery = currentTagSearchQuery().trim().length > 0;
     setHtml("tagList", hasQuery ? '<div class="tag-empty">No tags match your search.</div>' : "");
+    updateTagActionSummary();
     return;
   }
   const html = tags.map(tag => {
@@ -131,6 +156,7 @@ function renderTagButtons(tags){
   document.querySelectorAll("#tagList .tag").forEach((button) => {
     applyTagState(button, button.dataset.state || "");
   });
+  updateTagActionSummary();
 }
 
 function buildSearchBody(startIndex){
@@ -329,16 +355,22 @@ document.getElementById("btnTags").addEventListener("click", async ()=>{
     const data = await api("/api/tags", body);
     allTags = data.tags || [];
     const available = new Set(allTags);
+    let removed = false;
     Array.from(tagStates.keys()).forEach(tag => {
       if(!available.has(tag)){
         tagStates.delete(tag);
+        removed = true;
       }
     });
+    if(removed){
+      updateTagActionSummary();
+    }
     renderTagButtons(filterTagsByQuery(allTags, currentTagSearchQuery()));
   } catch (e) {
     allTags = [];
     tagStates.clear();
     setHtml("tagList", `Error loading tags: ${e.message}`);
+    updateTagActionSummary();
   }
 });
 
@@ -406,6 +438,7 @@ document.getElementById("tagList").addEventListener("click", (event) => {
   applyTagState(target, nextState);
 
   setTagInputs(addTags, removeTags);
+  updateTagActionSummary();
 });
 
 if(tagSearchInput){
@@ -510,6 +543,7 @@ if(paginationControls.next){
 
 updateSelectionSummary();
 updatePaginationControls(0, 0);
+updateTagActionSummary();
 
 document.getElementById("btnExport").addEventListener("click", async ()=>{
   const body = {
