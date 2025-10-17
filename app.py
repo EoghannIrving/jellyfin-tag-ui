@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
@@ -19,6 +19,25 @@ else:
 app = Flask(__name__)
 
 COLLECTION_ITEM_TYPES: Tuple[str, ...] = ("BoxSet", "CollectionFolder")
+
+UPDATE_FIELDS: Tuple[str, ...] = (
+    "Id",
+    "Name",
+    "SortName",
+    "Overview",
+    "Genres",
+    "Tags",
+    "ProviderIds",
+    "CommunityRating",
+    "CriticRating",
+    "OfficialRating",
+    "ProductionYear",
+    "PremiereDate",
+    "EndDate",
+    "Taglines",
+    "People",
+    "Studios",
+)
 
 
 def _configure_logging() -> logging.Logger:
@@ -93,6 +112,66 @@ def jf_post(url: str, api_key: str, params=None, json=None, timeout=30):
     return {}
 
 
+def jf_put(url: str, api_key: str, params=None, json=None, timeout=30):
+    logger.debug("PUT %s params=%s json=%s", url, params, json)
+    r = requests.put(
+        url,
+        headers=jf_headers(api_key),
+        params=params or {},
+        json=json,
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    if r.text and r.headers.get("content-type", "").startswith("application/json"):
+        return r.json()
+    return {}
+
+
+def _is_empty_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) == 0
+    return False
+
+
+def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {}
+    for field in UPDATE_FIELDS:
+        if field == "Tags":
+            continue
+        value = item.get(field)
+        if field == "Id" and value:
+            payload[field] = value
+            continue
+        if _is_empty_value(value):
+            continue
+        payload[field] = value
+    return payload
+
+
+def _is_unsupported_method_error(error: requests.HTTPError) -> bool:
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    return getattr(response, "status_code", None) in {405, 501}
+
+
+def jf_put_with_fallback(url: str, api_key: str, json=None, timeout=30):
+    try:
+        return jf_put(url, api_key, json=json, timeout=timeout)
+    except requests.HTTPError as error:
+        if _is_unsupported_method_error(error):
+            status = getattr(error.response, "status_code", "unknown")
+            logger.info(
+                "PUT %s unsupported (status=%s); falling back to POST", url, status
+            )
+            return jf_post(url, api_key, json=json, timeout=timeout)
+        raise
+
+
 def jf_update_tags(
     base: str,
     api_key: str,
@@ -128,7 +207,10 @@ def jf_update_tags(
             merged.pop(tag.lower(), None)
 
     final_tags = sorted(merged.values(), key=str.lower)
-    payload = {"Id": item_id, "Tags": final_tags}
+
+    payload = _filtered_update_payload(item)
+    payload["Id"] = payload.get("Id") or item_id
+    payload["Tags"] = final_tags
     logger.debug(
         "Posting updated tags for %s to %s with payload %s",
         item_id,
@@ -136,22 +218,8 @@ def jf_update_tags(
         payload,
     )
 
-    try:
-        jf_post(update_endpoint, api_key, json=payload)
-        return final_tags
-    except requests.HTTPError as first_error:
-        logger.warning(
-            "Minimal payload for item %s rejected (%s); retrying with metadata",
-            item_id,
-            first_error,
-        )
-        extended_payload = {
-            **payload,
-            "Name": item.get("Name", ""),
-            "ProviderIds": item.get("ProviderIds") or {},
-        }
-        jf_post(update_endpoint, api_key, json=extended_payload)
-        return final_tags
+    jf_put_with_fallback(update_endpoint, api_key, json=payload)
+    return final_tags
 
 
 def normalize_tags(tag_string):
