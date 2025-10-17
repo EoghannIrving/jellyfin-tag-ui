@@ -142,6 +142,11 @@ class ItemTagsTest(unittest.TestCase):
         self.assertEqual(item_tags({"Tags": ["Only"]}), ["Only"])
         self.assertEqual(item_tags({"TagItems": [{"Name": "Only"}]}), ["Only"])
 
+    def test_includes_inherited_tags(self):
+        item = {"TagItems": [], "Tags": [], "InheritedTags": ["Parent"]}
+
+        self.assertEqual(item_tags(item), ["Parent"])
+
 
 class ApiItemsFieldsTest(unittest.TestCase):
     def setUp(self):
@@ -180,6 +185,68 @@ class ApiItemsFieldsTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Tags", captured["fields"])
+        self.assertIn("InheritedTags", captured["fields"])
+
+    def test_api_items_filters_by_inherited_tags(self):
+        responses = [
+            {
+                "Items": [
+                    {
+                        "Id": "inherited",
+                        "Type": "Movie",
+                        "Name": "Inherited",
+                        "Path": "/inherited.mkv",
+                        "Tags": [],
+                        "TagItems": [],
+                        "InheritedTags": ["Legacy"],
+                    }
+                ],
+                "TotalRecordCount": 1,
+            },
+            {"Items": [], "TotalRecordCount": 1},
+        ]
+
+        call_count = {"index": 0}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            idx = call_count["index"]
+            call_count["index"] += 1
+            if idx < len(responses):
+                return responses[idx]
+            return {"Items": [], "TotalRecordCount": 1}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": "Legacy",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["TotalMatchCount"], 1)
+        self.assertEqual(data["ReturnedCount"], 1)
+        self.assertEqual(len(data["Items"]), 1)
+        self.assertEqual(data["Items"][0]["Id"], "inherited")
+        self.assertEqual(data["Items"][0]["Tags"], ["Legacy"])
 
     def test_api_items_clamps_limit_to_100(self):
         captured = {}
