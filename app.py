@@ -1,7 +1,11 @@
+import os
 from flask import Flask, render_template, request, jsonify, send_file
 import requests  # type: ignore[import-untyped]
 import csv
 import io
+from dotenv import load_dotenv  # type: ignore[import-not-found]
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -55,7 +59,9 @@ def page_items(
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    base_url = os.getenv("JELLYFIN_BASE_URL", "")
+    api_key = os.getenv("JELLYFIN_API_KEY", "")
+    return render_template("index.html", base_url=base_url, api_key=api_key)
 
 
 @app.route("/api/users", methods=["POST"])
