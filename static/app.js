@@ -51,10 +51,20 @@ function escapeHtml(value) {
   })[ch] || ch);
 }
 
+function getResultRowCheckboxes(){
+  return Array.from(document.querySelectorAll("input.sel"));
+}
+
 const tagStates = new Map();
 let allTags = [];
 const tagSearchInput = document.getElementById("tagSearch");
 const tagActionSummaryEl = document.getElementById("tagActionSummary");
+const selectedItemsListEl = document.getElementById("selectedItemsList");
+const selectedItemsPanelEl = document.getElementById("selectedItemsPanel");
+
+if(selectedItemsListEl){
+  selectedItemsListEl.setAttribute("aria-live", "polite");
+}
 
 const TAG_STATE_CONFIG = {
   "": {
@@ -187,12 +197,48 @@ function buildSearchQueryKey(body){
   });
 }
 
+function getSortedSelectedItems(){
+  return Array.from(searchState.selectedDetails.values()).sort((a, b) => {
+    const nameA = (a.name || "").toLocaleLowerCase();
+    const nameB = (b.name || "").toLocaleLowerCase();
+    if(nameA === nameB){
+      return (a.id || "").localeCompare(b.id || "");
+    }
+    return nameA.localeCompare(nameB);
+  });
+}
+
+function renderSelectedItemsList(){
+  if(!selectedItemsListEl){ return; }
+  const selectedItems = getSortedSelectedItems();
+  if(selectedItems.length === 0){
+    selectedItemsListEl.innerHTML = '<li class="selected-items-empty">No items selected.</li>';
+    return;
+  }
+  const html = selectedItems.map((item) => {
+    const safeId = escapeHtml(item.id || "");
+    const safeName = escapeHtml(item.name || "(no name)");
+    const safeType = escapeHtml(item.type || "Unknown");
+    return `
+      <li class="selected-item" data-id="${safeId}">
+        <div class="selected-item-info">
+          <span class="selected-item-name">${safeName}</span>
+          <span class="selected-item-type">${safeType}</span>
+        </div>
+        <button type="button" class="selected-item-remove" data-id="${safeId}">Remove</button>
+      </li>
+    `;
+  }).join("");
+  selectedItemsListEl.innerHTML = html;
+}
+
 function updateSelectionSummary(){
   const selected = searchState.selectedIds.size;
   const label = selected === 0
     ? "No items selected"
     : `${selected} item${selected === 1 ? "" : "s"} selected`;
   setHtml("selectionSummary", label);
+  renderSelectedItemsList();
 }
 
 function updateSelectAllState(selAll, rowCheckboxes){
@@ -270,7 +316,7 @@ function renderResults(items){
   setHtml("results", table);
 
   const selAll = document.getElementById("selAll");
-  const rowCheckboxes = Array.from(document.querySelectorAll("input.sel"));
+  const rowCheckboxes = getResultRowCheckboxes();
 
   rowCheckboxes.forEach(cb => {
     if(cb.checked){
@@ -440,6 +486,28 @@ document.getElementById("tagList").addEventListener("click", (event) => {
   setTagInputs(addTags, removeTags);
   updateTagActionSummary();
 });
+
+if(selectedItemsPanelEl){
+  selectedItemsPanelEl.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(".selected-item-remove");
+    if(!removeButton){ return; }
+    const id = removeButton.dataset.id;
+    if(!id){ return; }
+    const checkbox = getResultRowCheckboxes().find((cb) => cb.dataset.id === id);
+    if(checkbox){
+      checkbox.checked = false;
+      applySelectionFromCheckbox(checkbox);
+      const selAll = document.getElementById("selAll");
+      if(selAll){
+        updateSelectAllState(selAll, getResultRowCheckboxes());
+      }
+    } else {
+      searchState.selectedIds.delete(id);
+      searchState.selectedDetails.delete(id);
+      updateSelectionSummary();
+    }
+  });
+}
 
 if(tagSearchInput){
   tagSearchInput.addEventListener("input", ()=>{

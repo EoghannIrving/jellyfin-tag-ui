@@ -36,6 +36,31 @@ table{ width:100%; border-collapse:collapse; margin-top:8px; }
 th, td{ border-bottom:1px solid var(--line); padding:8px; text-align:left; vertical-align:top; font-size:14px; }
 th{ color:var(--muted); }
 
+.results-layout{ display:flex; gap:16px; align-items:flex-start; }
+.results-main{ flex:1 1 auto; min-width:0; }
+#selectedItemsPanel{ flex:0 0 280px; background:#0f172a; border:1px solid var(--line); border-radius:12px; padding:16px; position:sticky; top:16px; max-height:calc(100vh - 96px); overflow:auto; }
+.selected-items-header{ display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+.selected-items-title{ margin:0; font-size:16px; color:var(--text); }
+.selected-items-list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
+.selected-items-empty{ color:var(--muted); font-size:14px; }
+.selected-item{ display:flex; align-items:flex-start; gap:8px; border:1px solid var(--line); border-radius:10px; padding:8px; background:#0b1324; }
+.selected-item-info{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:4px; }
+.selected-item-name{ font-weight:600; font-size:14px; color:var(--text); word-break:break-word; }
+.selected-item-type{ font-size:12px; color:var(--muted); text-transform:capitalize; }
+.selected-item-remove{ background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer; }
+.selected-item-remove:hover{ color:var(--text); border-color:var(--accent); }
+.selected-item-remove:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+.results-main > .summary{ margin-bottom:12px; }
+.selected-items-header .summary{ margin:0; font-size:14px; color:var(--muted); }
+
+.results-main .pagination-controls{ margin-top:16px; }
+
+@media (max-width: 900px){
+  .results-layout{ flex-direction:column; }
+  #selectedItemsPanel{ position:static; max-height:none; width:100%; }
+}
+
 .pagination-controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:12px; }
 .pagination-controls button[disabled]{ opacity:0.5; cursor:not-allowed; }
 .pagination-controls .page-summary{ color:var(--muted); font-size:14px; }

@@ -72,15 +72,25 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card results-section">
       <h2>Results</h2>
-      <div id="resultSummary" class="summary"></div>
-      <div id="selectionSummary" class="summary"></div>
-      <div id="results"></div>
-      <div class="pagination-controls">
-        <button id="btnPrevPage" type="button" disabled>Previous</button>
-        <button id="btnNextPage" type="button" disabled>Next</button>
-        <span id="pageSummary" class="page-summary" role="status" aria-live="polite"></span>
+      <div class="results-layout">
+        <div class="results-main">
+          <div id="resultSummary" class="summary"></div>
+          <div id="results"></div>
+          <div class="pagination-controls">
+            <button id="btnPrevPage" type="button" disabled>Previous</button>
+            <button id="btnNextPage" type="button" disabled>Next</button>
+            <span id="pageSummary" class="page-summary" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+        <aside id="selectedItemsPanel" aria-label="Selected items">
+          <div class="selected-items-header">
+            <h3 class="selected-items-title">Selection</h3>
+            <div id="selectionSummary" class="summary"></div>
+          </div>
+          <ul id="selectedItemsList" class="selected-items-list"></ul>
+        </aside>
       </div>
     </section>
 
