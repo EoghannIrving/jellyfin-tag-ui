@@ -43,10 +43,84 @@ document.getElementById("btnTags").addEventListener("click", async ()=>{
   setHtml("tagList", "Loading tags...");
   try {
     const data = await api("/api/tags", body);
-    setHtml("tagList", data.tags.map(t => `<span class="tag">${t}</span>`).join(" "));
+    setHtml(
+      "tagList",
+      data.tags
+        .map(
+          (t) =>
+            `<button type="button" class="tag" data-tag="${t}"><span>${t}</span></button>`
+        )
+        .join(" ")
+    );
   } catch (e) {
     setHtml("tagList", `Error loading tags: ${e.message}`);
   }
+});
+
+function setTagInputs(addTags, removeTags) {
+  const joiner = "; ";
+  document.getElementById("applyAdd").value = addTags.join(joiner);
+  document.getElementById("applyRemove").value = removeTags.join(joiner);
+}
+
+document.getElementById("tagList").addEventListener("click", (event) => {
+  const target = event.target.closest(".tag");
+  if (!target || !target.dataset.tag) {
+    return;
+  }
+
+  const tag = target.dataset.tag;
+  const addInput = document.getElementById("applyAdd");
+  const removeInput = document.getElementById("applyRemove");
+  const addTags = splitTags(addInput.value);
+  const removeTags = splitTags(removeInput.value);
+
+  const currentState = target.dataset.state || "";
+
+  const nextState =
+    currentState === "add" ? "remove" : currentState === "remove" ? "" : "add";
+
+  if (currentState === "add") {
+    const idx = addTags.indexOf(tag);
+    if (idx !== -1) {
+      addTags.splice(idx, 1);
+    }
+  }
+
+  if (currentState === "remove") {
+    const idx = removeTags.indexOf(tag);
+    if (idx !== -1) {
+      removeTags.splice(idx, 1);
+    }
+  }
+
+  if (nextState === "add") {
+    if (!addTags.includes(tag)) {
+      addTags.push(tag);
+    }
+    const removeIdx = removeTags.indexOf(tag);
+    if (removeIdx !== -1) {
+      removeTags.splice(removeIdx, 1);
+    }
+  } else if (nextState === "remove") {
+    if (!removeTags.includes(tag)) {
+      removeTags.push(tag);
+    }
+    const addIdx = addTags.indexOf(tag);
+    if (addIdx !== -1) {
+      addTags.splice(addIdx, 1);
+    }
+  }
+
+  target.dataset.state = nextState;
+  target.classList.remove("tag-add", "tag-remove");
+  if (nextState === "add") {
+    target.classList.add("tag-add");
+  } else if (nextState === "remove") {
+    target.classList.add("tag-remove");
+  }
+
+  setTagInputs(addTags, removeTags);
 });
 
 async function search(pageStart=0){
