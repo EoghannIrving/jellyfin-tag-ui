@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 import sys
 import types
@@ -158,6 +160,8 @@ class ApiItemsFieldsTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             captured["fields"] = fields
             return {"Items": [], "TotalRecordCount": 0}
@@ -190,6 +194,8 @@ class ApiItemsFieldsTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             captured["limit"] = limit
             return {"Items": [], "TotalRecordCount": 0}
@@ -209,6 +215,44 @@ class ApiItemsFieldsTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["limit"], 100)
+
+    def test_api_items_passes_sort_parameters(self):
+        captured = {}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            captured["sort_by"] = sort_by
+            captured["sort_order"] = sort_order
+            return {"Items": [], "TotalRecordCount": 0}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "sortBy": "PremiereDate",
+                    "sortOrder": "Descending",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["sort_by"], "PremiereDate")
+        self.assertEqual(captured["sort_order"], "Descending")
 
     def test_api_items_includes_all_types_when_filter_blank(self):
         captured_params = []
@@ -272,6 +316,8 @@ class ApiItemsFieldsTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             starts.append(start)
             if start == 0:
@@ -374,6 +420,8 @@ class ApiItemsFieldsTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             starts.append((start, limit))
             slice_end = start + limit
@@ -405,6 +453,131 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(len(data["Items"]), 2)
         self.assertEqual([item["Id"] for item in data["Items"]], ["match-2", "match-3"])
 
+    def test_api_items_sorts_results_locally_by_name(self):
+        captured_sort = []
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            captured_sort.append((sort_by, sort_order))
+            if start == 0:
+                return {
+                    "Items": [
+                        {
+                            "Id": "b",
+                            "Type": "Movie",
+                            "Name": "Bravo",
+                            "Path": "/b.mkv",
+                            "Tags": ["Tag"],
+                        },
+                        {
+                            "Id": "a",
+                            "Type": "Movie",
+                            "Name": "Alpha",
+                            "Path": "/a.mkv",
+                            "Tags": ["Tag"],
+                        },
+                    ],
+                    "TotalRecordCount": 2,
+                }
+            return {"Items": [], "TotalRecordCount": 2}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "sortBy": "SortName",
+                    "sortOrder": "Ascending",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual([item["Name"] for item in data["Items"]], ["Alpha", "Bravo"])
+        self.assertIn(("SortName", "Ascending"), captured_sort)
+
+    def test_api_items_sorts_results_locally_by_date(self):
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            if start == 0:
+                return {
+                    "Items": [
+                        {
+                            "Id": "legacy",
+                            "Type": "Movie",
+                            "Name": "Legacy",
+                            "PremiereDate": "2010-01-01T00:00:00Z",
+                            "Path": "/legacy.mkv",
+                            "Tags": [],
+                        },
+                        {
+                            "Id": "modern",
+                            "Type": "Movie",
+                            "Name": "Modern",
+                            "PremiereDate": "2020-01-01T00:00:00Z",
+                            "Path": "/modern.mkv",
+                            "Tags": [],
+                        },
+                        {
+                            "Id": "year-only",
+                            "Type": "Movie",
+                            "Name": "Year Only",
+                            "ProductionYear": 2022,
+                            "Path": "/year-only.mkv",
+                            "Tags": [],
+                        },
+                    ],
+                    "TotalRecordCount": 3,
+                }
+            return {"Items": [], "TotalRecordCount": 3}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "sortBy": "PremiereDate",
+                    "sortOrder": "Descending",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(
+            [item["Id"] for item in data["Items"]],
+            ["year-only", "modern", "legacy"],
+        )
+
 
 class ApiExportFieldsTest(unittest.TestCase):
     def setUp(self):
@@ -423,6 +596,8 @@ class ApiExportFieldsTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             captured_fields.append(fields)
             if start == 0:
@@ -459,6 +634,69 @@ class ApiExportFieldsTest(unittest.TestCase):
         csv_output = response.data.decode("utf-8")
         self.assertIn("Drama;Sci-Fi", csv_output)
 
+    def test_api_export_respects_sorting(self):
+        captured_orders = []
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            captured_orders.append((sort_by, sort_order))
+            if start == 0:
+                return {
+                    "Items": [
+                        {
+                            "Id": "b",
+                            "Name": "Bravo",
+                            "Path": "/b.mkv",
+                            "ProviderIds": {},
+                            "Type": "Movie",
+                            "TagItems": [],
+                            "Tags": [],
+                        },
+                        {
+                            "Id": "a",
+                            "Name": "Alpha",
+                            "Path": "/a.mkv",
+                            "ProviderIds": {},
+                            "Type": "Movie",
+                            "TagItems": [],
+                            "Tags": [],
+                        },
+                    ],
+                    "TotalRecordCount": 2,
+                }
+            return {"Items": [], "TotalRecordCount": 2}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/export",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "sortBy": "SortName",
+                    "sortOrder": "Ascending",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(("SortName", "Ascending"), captured_orders)
+        reader = csv.DictReader(io.StringIO(response.data.decode("utf-8")))
+        names = [row["name"] for row in reader]
+        self.assertEqual(names, ["Alpha", "Bravo"])
+
 
 class ApiItemsCollectionExclusionTest(unittest.TestCase):
     def setUp(self):
@@ -477,6 +715,8 @@ class ApiItemsCollectionExclusionTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             captured.setdefault("exclude_types", exclude_types)
             return {
@@ -538,6 +778,8 @@ class ApiExportCollectionExclusionTest(unittest.TestCase):
             start,
             limit,
             exclude_types=None,
+            sort_by=None,
+            sort_order=None,
         ):
             captured.append(exclude_types)
             if start == 0:

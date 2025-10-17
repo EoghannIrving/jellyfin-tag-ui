@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -19,6 +20,11 @@ else:
 app = Flask(__name__)
 
 COLLECTION_ITEM_TYPES: Tuple[str, ...] = ("BoxSet", "CollectionFolder")
+
+DEFAULT_SORT_BY = "SortName"
+DEFAULT_SORT_ORDER = "Ascending"
+SORTABLE_FIELDS: Tuple[str, ...] = ("SortName", "PremiereDate")
+SORT_ORDERS: Tuple[str, ...] = ("Ascending", "Descending")
 
 UPDATE_FIELDS: Tuple[str, ...] = (
     "Id",
@@ -158,6 +164,29 @@ def normalize_item_types(raw_types: Any) -> List[str]:
     return normalized
 
 
+def normalize_sort_params(sort_by: Any, sort_order: Any) -> Tuple[str, str]:
+    raw_sort_by = str(sort_by or "").strip()
+    normalized_sort_by = (
+        raw_sort_by if raw_sort_by in SORTABLE_FIELDS else DEFAULT_SORT_BY
+    )
+
+    raw_order = str(sort_order or "").strip()
+    lower_order = raw_order.lower()
+    if lower_order in {"descending", "desc"}:
+        normalized_sort_order = "Descending"
+    elif lower_order in {"ascending", "asc"}:
+        normalized_sort_order = "Ascending"
+    elif raw_order in SORT_ORDERS:
+        normalized_sort_order = raw_order
+    else:
+        normalized_sort_order = DEFAULT_SORT_ORDER
+
+    if normalized_sort_order not in SORT_ORDERS:
+        normalized_sort_order = DEFAULT_SORT_ORDER
+
+    return normalized_sort_by, normalized_sort_order
+
+
 def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
     for field in UPDATE_FIELDS:
@@ -272,6 +301,92 @@ def item_tags(item):
     return names
 
 
+def _serialize_item_for_response(item: Mapping[str, Any]) -> Dict[str, Any]:
+    name = item.get("Name", "")
+    sort_name = item.get("SortName") or name
+    return {
+        "Id": item.get("Id", ""),
+        "Type": item.get("Type", ""),
+        "Name": name,
+        "SortName": sort_name,
+        "Path": item.get("Path", ""),
+        "Tags": item_tags(item),
+        "PremiereDate": item.get("PremiereDate"),
+        "ProductionYear": item.get("ProductionYear"),
+    }
+
+
+def _name_sort_key(item: Mapping[str, Any]) -> Tuple[str, str, str]:
+    sort_name = str(item.get("SortName") or item.get("Name") or "").casefold()
+    name = str(item.get("Name") or "").casefold()
+    identifier = str(item.get("Id") or "")
+    return sort_name, name, identifier
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    candidate = text
+    if text.endswith("Z"):
+        candidate = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _release_timestamp(item: Mapping[str, Any]) -> Optional[float]:
+    premiere = _parse_iso_datetime(item.get("PremiereDate"))
+    if premiere is not None:
+        return premiere.timestamp()
+    raw_year = item.get("ProductionYear")
+    if raw_year is None:
+        return None
+    try:
+        year = int(raw_year)
+    except (TypeError, ValueError):
+        return None
+    try:
+        anchor = datetime(year, 1, 1, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return anchor.timestamp()
+
+
+def sort_items_for_response(
+    items: Sequence[Mapping[str, Any]], sort_by: Any, sort_order: Any
+) -> List[Mapping[str, Any]]:
+    normalized_sort_by, normalized_sort_order = normalize_sort_params(
+        sort_by, sort_order
+    )
+    if normalized_sort_by == "PremiereDate":
+        descending = normalized_sort_order == "Descending"
+
+        def key(item: Mapping[str, Any]) -> Tuple[float, str, str, str]:
+            timestamp = _release_timestamp(item)
+            if timestamp is None:
+                key_timestamp = float("inf")
+            elif descending:
+                key_timestamp = -timestamp
+            else:
+                key_timestamp = timestamp
+            name_key = _name_sort_key(item)
+            return (key_timestamp, *name_key)
+
+        return sorted(items, key=key)
+
+    sorted_items = sorted(items, key=_name_sort_key)
+    if normalized_sort_order == "Descending":
+        sorted_items.reverse()
+    return sorted_items
+
+
 def page_items(
     base,
     api_key,
@@ -282,6 +397,8 @@ def page_items(
     start_index=0,
     limit=200,
     exclude_types: Optional[Sequence[str]] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ):
     normalized_types = normalize_item_types(include_types)
     params = {
@@ -295,6 +412,10 @@ def page_items(
         params["IncludeItemTypes"] = ",".join(normalized_types)
     if exclude_types:
         params["ExcludeItemTypes"] = ",".join(exclude_types)
+    if sort_by:
+        params["SortBy"] = sort_by
+    if sort_order:
+        params["SortOrder"] = sort_order
     endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
     return jf_get(endpoint, api_key, params)
 
@@ -444,12 +565,17 @@ def api_items():
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
     exclude_collections = bool(data.get("excludeCollections"))
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
-    start = int(data.get("startIndex", 0))
+    start = max(0, int(data.get("startIndex", 0)))
     limit = int(data.get("limit", 100))
     if limit > 100:
         limit = 100
+    if limit < 0:
+        limit = 0
+    sort_by, sort_order = normalize_sort_params(
+        data.get("sortBy"), data.get("sortOrder")
+    )
     logger.info(
-        "POST /api/items base=%s library=%s user=%s include=%s exclude=%s start=%d limit=%d",
+        "POST /api/items base=%s library=%s user=%s include=%s exclude=%s start=%d limit=%d sort_by=%s sort_order=%s",
         base or "",
         lib_id,
         user_id,
@@ -457,16 +583,27 @@ def api_items():
         exclude_tags,
         start,
         limit,
+        sort_by,
+        sort_order,
     )
     if error is not None:
         return error
     user_id = data["userId"]
     lib_id = data["libraryId"]
 
-    fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
-    filtered: List[Dict[str, Any]] = []
+    fields = [
+        "TagItems",
+        "Name",
+        "Path",
+        "ProviderIds",
+        "Type",
+        "Tags",
+        "SortName",
+        "PremiereDate",
+        "ProductionYear",
+    ]
+    matched_items: List[Dict[str, Any]] = []
     total_record_count: Optional[int] = None
-    total_matches = 0
     current_start = 0
     fetch_limit = limit if limit > 0 else 100
 
@@ -495,6 +632,8 @@ def api_items():
             current_start,
             fetch_limit,
             exclude_types=excluded_types,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
         _update_total(payload)
         raw_items = payload.get("Items", [])
@@ -508,27 +647,21 @@ def api_items():
 
         for it in items:
             if good(it):
-                total_matches += 1
-                if total_matches <= start:
-                    continue
-                if len(filtered) >= limit:
-                    continue
-                filtered.append(
-                    {
-                        "Id": it.get("Id", ""),
-                        "Type": it.get("Type", ""),
-                        "Name": it.get("Name", ""),
-                        "Path": it.get("Path", ""),
-                        "Tags": item_tags(it),
-                    }
-                )
+                matched_items.append(_serialize_item_for_response(it))
 
         current_start += len(raw_items)
         if total_record_count is not None and current_start >= int(total_record_count):
             break
 
     total = total_record_count if total_record_count is not None else current_start
-    returned_count = len(filtered)
+    total_matches = len(matched_items)
+    sorted_matches = sort_items_for_response(matched_items, sort_by, sort_order)
+    if limit > 0:
+        slice_end = start + limit
+        paged_items = sorted_matches[start:slice_end]
+    else:
+        paged_items = []
+    returned_count = len(paged_items)
 
     logger.info(
         "/api/items returning %d filtered items out of %d total (excluded_types=%s)",
@@ -541,7 +674,9 @@ def api_items():
             "TotalRecordCount": total,
             "TotalMatchCount": total_matches,
             "ReturnedCount": returned_count,
-            "Items": filtered,
+            "Items": paged_items,
+            "SortBy": sort_by,
+            "SortOrder": sort_order,
         }
     )
 
@@ -556,22 +691,37 @@ def api_export():
     include_types = normalize_item_types(data.get("types"))
     exclude_collections = bool(data.get("excludeCollections"))
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
+    sort_by, sort_order = normalize_sort_params(
+        data.get("sortBy"), data.get("sortOrder")
+    )
     logger.info(
-        "POST /api/export base=%s library=%s user=%s include_types=%s",
+        "POST /api/export base=%s library=%s user=%s include_types=%s sort_by=%s sort_order=%s",
         base or "",
         lib_id,
         user_id,
         include_types,
+        sort_by,
+        sort_order,
     )
     if error is not None:
         return error
     user_id = data["userId"]
     lib_id = data["libraryId"]
 
-    fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
+    fields = [
+        "TagItems",
+        "Name",
+        "Path",
+        "ProviderIds",
+        "Type",
+        "Tags",
+        "SortName",
+        "PremiereDate",
+        "ProductionYear",
+    ]
     start = 0
     limit = 500
-    rows = []
+    collected_items: List[Dict[str, Any]] = []
     total_processed = 0
     while True:
         payload = page_items(
@@ -584,6 +734,8 @@ def api_export():
             start,
             limit,
             exclude_types=excluded_types,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
         raw_items = payload.get("Items", [])
         if not raw_items:
@@ -594,19 +746,23 @@ def api_export():
             items = [it for it in raw_items if it.get("Type") not in excluded_set]
         total_processed += len(items)
         for it in items:
-            rows.append(
-                {
-                    "id": it.get("Id", ""),
-                    "type": it.get("Type", ""),
-                    "name": it.get("Name", ""),
-                    "path": it.get("Path", ""),
-                    "tags": ";".join(sorted(item_tags(it), key=str.lower)),
-                }
-            )
+            collected_items.append(_serialize_item_for_response(it))
         start += len(raw_items)
         if start >= payload.get("TotalRecordCount", start):
             break
     logger.info("/api/export processed %d items for CSV export", total_processed)
+
+    sorted_items = sort_items_for_response(collected_items, sort_by, sort_order)
+    rows = [
+        {
+            "id": item.get("Id", ""),
+            "type": item.get("Type", ""),
+            "name": item.get("Name", ""),
+            "path": item.get("Path", ""),
+            "tags": ";".join(sorted(item.get("Tags", []), key=str.lower)),
+        }
+        for item in sorted_items
+    ]
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["id", "type", "name", "path", "tags"])

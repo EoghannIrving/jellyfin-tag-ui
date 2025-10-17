@@ -22,6 +22,7 @@ const btnUsers = document.getElementById("btnUsers");
 const btnLibs = document.getElementById("btnLibs");
 const userSelect = document.getElementById("userId");
 const librarySelect = document.getElementById("libraryId");
+const sortSelect = document.getElementById("sortOption");
 const userStatusEl = document.getElementById("userStatus");
 const libraryStatusEl = document.getElementById("libraryStatus");
 const searchState = {
@@ -110,6 +111,103 @@ const tagSearchInput = document.getElementById("tagSearch");
 const tagActionSummaryEl = document.getElementById("tagActionSummary");
 const selectedItemsListEl = document.getElementById("selectedItemsList");
 const selectedItemsPanelEl = document.getElementById("selectedItemsPanel");
+
+function compareByNameAsc(a, b){
+  const options = {sensitivity: "base"};
+  const sortA = (a.SortName || a.Name || "").trim();
+  const sortB = (b.SortName || b.Name || "").trim();
+  const primary = sortA.localeCompare(sortB, undefined, options);
+  if(primary !== 0){
+    return primary;
+  }
+  const displayA = (a.Name || "").trim();
+  const displayB = (b.Name || "").trim();
+  const secondary = displayA.localeCompare(displayB, undefined, options);
+  if(secondary !== 0){
+    return secondary;
+  }
+  return (a.Id || "").localeCompare(b.Id || "");
+}
+
+function getReleaseTimestamp(item){
+  if(!item || typeof item !== "object"){ return null; }
+  if(item.PremiereDate){
+    const parsed = Date.parse(item.PremiereDate);
+    if(!Number.isNaN(parsed)){ return parsed; }
+  }
+  const year = item.ProductionYear;
+  if(year !== undefined && year !== null && year !== ""){
+    const parsedYear = Number(year);
+    if(Number.isFinite(parsedYear)){
+      return Date.UTC(parsedYear, 0, 1);
+    }
+  }
+  return null;
+}
+
+function compareByDateDesc(a, b){
+  const valueA = getReleaseTimestamp(a);
+  const valueB = getReleaseTimestamp(b);
+  const normalizedA = valueA === null ? Number.NEGATIVE_INFINITY : valueA;
+  const normalizedB = valueB === null ? Number.NEGATIVE_INFINITY : valueB;
+  if(normalizedA !== normalizedB){
+    return normalizedB - normalizedA;
+  }
+  return compareByNameAsc(a, b);
+}
+
+const DEFAULT_SORT_OPTION = "name-asc";
+const SORT_OPTIONS = {
+  "name-asc": {
+    sortBy: "SortName",
+    sortOrder: "Ascending",
+    clientComparator: compareByNameAsc,
+  },
+  "date-desc": {
+    sortBy: "PremiereDate",
+    sortOrder: "Descending",
+    clientComparator: compareByDateDesc,
+  },
+};
+
+function getSelectedSortOptionKey(){
+  if(!sortSelect){ return DEFAULT_SORT_OPTION; }
+  const value = sortSelect.value;
+  if(value && SORT_OPTIONS[value]){
+    return value;
+  }
+  return DEFAULT_SORT_OPTION;
+}
+
+function getSortOptionConfig(key){
+  return SORT_OPTIONS[key] || SORT_OPTIONS[DEFAULT_SORT_OPTION];
+}
+
+function applyClientSort(items, sortKey){
+  if(!Array.isArray(items)){
+    return [];
+  }
+  const key = sortKey && SORT_OPTIONS[sortKey] ? sortKey : DEFAULT_SORT_OPTION;
+  const comparator = SORT_OPTIONS[key].clientComparator;
+  if(typeof comparator !== "function"){
+    return [...items];
+  }
+  return [...items].sort(comparator);
+}
+
+function formatReleaseLabel(item){
+  const timestamp = getReleaseTimestamp(item);
+  if(timestamp !== null){
+    const date = new Date(timestamp);
+    if(!Number.isNaN(date.getTime())){
+      return date.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"});
+    }
+  }
+  if(item && item.ProductionYear){
+    return String(item.ProductionYear);
+  }
+  return "";
+}
 
 if(selectedItemsListEl){
   selectedItemsListEl.setAttribute("aria-live", "polite");
@@ -222,6 +320,8 @@ function buildSearchBody(startIndex){
   const typesInput = val("types");
   const parsedTypes = splitTags(typesInput);
   const types = parsedTypes.length > 0 ? parsedTypes : null;
+  const sortKey = getSelectedSortOptionKey();
+  const sortConfig = getSortOptionConfig(sortKey);
   return {
     base: val("base"),
     apiKey: val("apiKey"),
@@ -233,6 +333,9 @@ function buildSearchBody(startIndex){
     excludeCollections: document.getElementById("excludeCollections").checked,
     startIndex,
     limit: searchState.limit,
+    sortBy: sortConfig.sortBy,
+    sortOrder: sortConfig.sortOrder,
+    sortOption: sortKey,
   };
 }
 
@@ -246,6 +349,8 @@ function buildSearchQueryKey(body){
     includeTags: body.includeTags,
     excludeTags: body.excludeTags,
     excludeCollections: body.excludeCollections,
+    sortBy: body.sortBy,
+    sortOrder: body.sortOrder,
   });
 }
 
@@ -349,11 +454,13 @@ function renderResults(items){
     const safeName = escapeHtml(it.Name || "");
     const safePath = escapeHtml(it.Path || "");
     const safeTags = escapeHtml((it.Tags || []).join("; "));
+    const releaseLabel = escapeHtml(formatReleaseLabel(it));
     return `
     <tr>
       <td>${checkbox(it)}</td>
       <td>${safeType}</td>
       <td>${safeName}</td>
+      <td>${releaseLabel}</td>
       <td>${safePath}</td>
       <td>${safeTags}</td>
     </tr>
@@ -361,7 +468,7 @@ function renderResults(items){
   }).join("");
   const table = `
     <table>
-      <thead><tr><th><input type="checkbox" id="selAll"></th><th>Type</th><th>Name</th><th>Path</th><th>Tags</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="selAll"></th><th>Type</th><th>Name</th><th>Release</th><th>Path</th><th>Tags</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -677,7 +784,9 @@ async function search({startIndex, reset = false} = {}){
 
   try {
     const data = await api("/api/items", body);
-    const items = data.Items || [];
+    const sortKey = body.sortOption || getSelectedSortOptionKey();
+    let items = data.Items || [];
+    items = applyClientSort(items, sortKey);
     const returned = items.length;
     const total = data.TotalRecordCount ?? returned;
 
@@ -756,6 +865,10 @@ document.getElementById("btnExport").addEventListener("click", async ()=>{
     types: splitTags(val("types")),
     excludeCollections: document.getElementById("excludeCollections").checked
   };
+  const sortKey = getSelectedSortOptionKey();
+  const sortConfig = getSortOptionConfig(sortKey);
+  body.sortBy = sortConfig.sortBy;
+  body.sortOrder = sortConfig.sortOrder;
   const res = await fetch("/api/export", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
   if(!res.ok){ alert("Export failed"); return; }
   const blob = await res.blob();
