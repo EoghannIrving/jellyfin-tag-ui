@@ -19,7 +19,7 @@ function optionList(arr, valueKey, textKey){
 }
 const searchState = {
   startIndex: 0,
-  limit: 500,
+  limit: 100,
   total: 0,
   queryKey: "",
   itemsById: new Map(),
