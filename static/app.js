@@ -17,6 +17,13 @@ function api(path, body){
 function optionList(arr, valueKey, textKey){
   return arr.map(o => `<option value="${o[valueKey]}">${o[textKey] || o[valueKey]}</option>`).join("");
 }
+
+const btnUsers = document.getElementById("btnUsers");
+const btnLibs = document.getElementById("btnLibs");
+const userSelect = document.getElementById("userId");
+const librarySelect = document.getElementById("libraryId");
+const userStatusEl = document.getElementById("userStatus");
+const libraryStatusEl = document.getElementById("libraryStatus");
 const searchState = {
   startIndex: 0,
   limit: 100,
@@ -49,6 +56,48 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   })[ch] || ch);
+}
+
+function setStatus(el, text){
+  if(!el){ return; }
+  el.textContent = text || "";
+}
+
+function pluralize(count, singular, plural){
+  if(count === 1){ return singular; }
+  if(plural){ return plural; }
+  if(singular.endsWith("y")){
+    return `${singular.slice(0, -1)}ies`;
+  }
+  return `${singular}s`;
+}
+
+function setButtonLoading(button, isLoading, loadingText){
+  if(!button){ return; }
+  if(isLoading){
+    if(!button.dataset.originalText){
+      button.dataset.originalText = button.textContent;
+    }
+    button.disabled = true;
+    if(loadingText){
+      button.textContent = loadingText;
+    }
+    button.setAttribute("aria-busy", "true");
+  } else {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    if(button.dataset.originalText){
+      button.textContent = button.dataset.originalText;
+      delete button.dataset.originalText;
+    }
+  }
+}
+
+function setSelectPlaceholder(selectEl, text){
+  if(!selectEl){ return; }
+  const safeText = escapeHtml(text || "");
+  selectEl.innerHTML = `<option value="" disabled selected>${safeText}</option>`;
+  selectEl.value = "";
 }
 
 function getResultRowCheckboxes(){
@@ -375,18 +424,100 @@ function updatePaginationControls(returned, total){
   }
 }
 
-document.getElementById("btnUsers").addEventListener("click", async ()=>{
-  const data = await api("/api/users", {base: val("base"), apiKey: val("apiKey")});
-  const opts = optionList(data, "Id", "Name");
-  setHtml("userId", opts);
-});
+if(btnUsers){
+  btnUsers.addEventListener("click", async ()=>{
+    if(!userSelect){ return; }
+    setButtonLoading(btnUsers, true, "Loading...");
+    setStatus(userStatusEl, "Loading users…");
+    setSelectPlaceholder(userSelect, "Loading users…");
+    userSelect.disabled = true;
+    try {
+      const data = await api("/api/users", {base: val("base"), apiKey: val("apiKey")});
+      if(Array.isArray(data) && data.length){
+        const opts = `<option value="" disabled selected>Select a user</option>${optionList(data, "Id", "Name")}`;
+        userSelect.innerHTML = opts;
+        userSelect.disabled = false;
+        setStatus(userStatusEl, `${data.length} ${pluralize(data.length, "user")} loaded`);
+        if(librarySelect){
+          setSelectPlaceholder(librarySelect, "Select a user first");
+          librarySelect.disabled = true;
+        }
+        setStatus(libraryStatusEl, "Choose a user to load libraries.");
+      } else {
+        setSelectPlaceholder(userSelect, "No users found");
+        userSelect.disabled = true;
+        setStatus(userStatusEl, "No users found");
+        if(librarySelect){
+          setSelectPlaceholder(librarySelect, "Load libraries first");
+          librarySelect.disabled = true;
+        }
+        setStatus(libraryStatusEl, "No users available; cannot load libraries.");
+      }
+    } catch (e) {
+      setSelectPlaceholder(userSelect, "Load users first");
+      userSelect.disabled = true;
+      setStatus(userStatusEl, `Error loading users: ${e.message}`);
+      if(librarySelect){
+        setSelectPlaceholder(librarySelect, "Load libraries first");
+        librarySelect.disabled = true;
+      }
+      setStatus(libraryStatusEl, "Load users before libraries.");
+    } finally {
+      setButtonLoading(btnUsers, false);
+    }
+  });
+}
 
-document.getElementById("btnLibs").addEventListener("click", async ()=>{
-  const data = await api("/api/libraries", {base: val("base"), apiKey: val("apiKey")});
-  const opts = data.map(x => ({value: x.ItemId, text: `${x.Name} (${x.CollectionType||"?"})`}))
-                   .map(o => `<option value="${o.value}">${o.text}</option>`).join("");
-  setHtml("libraryId", opts);
-});
+if(userSelect){
+  userSelect.addEventListener("change", () => {
+    if(!librarySelect){ return; }
+    if(!userSelect.value){
+      setSelectPlaceholder(librarySelect, "Select a user first");
+      librarySelect.disabled = true;
+      setStatus(libraryStatusEl, "Choose a user to load libraries.");
+      return;
+    }
+    setSelectPlaceholder(librarySelect, "Load libraries first");
+    librarySelect.disabled = true;
+    setStatus(libraryStatusEl, "Click Load Libraries to fetch options.");
+  });
+}
+
+if(btnLibs){
+  btnLibs.addEventListener("click", async ()=>{
+    if(!librarySelect || !userSelect){ return; }
+    const userId = userSelect.value;
+    if(!userId){
+      setStatus(libraryStatusEl, "Select a user first.");
+      userSelect.focus();
+      return;
+    }
+    setButtonLoading(btnLibs, true, "Loading...");
+    setStatus(libraryStatusEl, "Loading libraries…");
+    setSelectPlaceholder(librarySelect, "Loading libraries…");
+    librarySelect.disabled = true;
+    try {
+      const data = await api("/api/libraries", {base: val("base"), apiKey: val("apiKey"), userId});
+      if(Array.isArray(data) && data.length){
+        const opts = data.map(x => ({value: x.ItemId, text: `${x.Name} (${x.CollectionType||"?"})`}))
+                        .map(o => `<option value="${o.value}">${o.text}</option>`).join("");
+        librarySelect.innerHTML = `<option value="" disabled selected>Select a library</option>${opts}`;
+        librarySelect.disabled = false;
+        setStatus(libraryStatusEl, `${data.length} ${pluralize(data.length, "library")} loaded`);
+      } else {
+        setSelectPlaceholder(librarySelect, "No libraries found");
+        librarySelect.disabled = true;
+        setStatus(libraryStatusEl, "No libraries found for this user.");
+      }
+    } catch (e) {
+      setSelectPlaceholder(librarySelect, "Load libraries first");
+      librarySelect.disabled = true;
+      setStatus(libraryStatusEl, `Error loading libraries: ${e.message}`);
+    } finally {
+      setButtonLoading(btnLibs, false);
+    }
+  });
+}
 
 document.getElementById("btnTags").addEventListener("click", async ()=>{
   const body = {
