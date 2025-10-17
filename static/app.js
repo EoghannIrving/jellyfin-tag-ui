@@ -510,26 +510,26 @@ function renderResults(items){
   updateSelectionSummary();
 }
 
-function updatePaginationControls(returned, total){
+function updatePaginationControls(returned, filteredTotal){
   const {prev, next, summary} = paginationControls;
   if(prev){
-    const hasPrev = total > 0 && searchState.startIndex > 0;
+    const hasPrev = filteredTotal > 0 && searchState.startIndex > 0;
     prev.disabled = !hasPrev;
   }
   if(next){
     const nextStart = searchState.startIndex + searchState.limit;
-    next.disabled = !(total > 0 && nextStart < total);
+    next.disabled = !(filteredTotal > 0 && nextStart < filteredTotal);
   }
   if(summary){
-    if(total === 0){
+    if(filteredTotal === 0){
       summary.textContent = searchState.queryKey ? "No items found" : "";
     } else {
-      const start = Math.min(total, searchState.startIndex + 1);
-      let end = returned ? Math.min(total, searchState.startIndex + returned) : Math.min(total, searchState.startIndex + searchState.limit);
+      const start = Math.min(filteredTotal, searchState.startIndex + 1);
+      let end = returned ? Math.min(filteredTotal, searchState.startIndex + returned) : Math.min(filteredTotal, searchState.startIndex + searchState.limit);
       if(end < start){
         end = start;
       }
-      summary.textContent = `${start}-${end} of ${total}`;
+      summary.textContent = `${start}-${end} of ${filteredTotal}`;
     }
   }
 }
@@ -788,10 +788,10 @@ async function search({startIndex, reset = false} = {}){
     let items = data.Items || [];
     items = applyClientSort(items, sortKey);
     const returned = items.length;
-    const total = data.TotalRecordCount ?? returned;
+    const filteredTotal = data.TotalMatchCount ?? data.TotalRecordCount ?? returned;
 
     searchState.startIndex = targetStart;
-    searchState.total = total;
+    searchState.total = filteredTotal;
     searchState.queryKey = queryKey;
 
     items.forEach(item => {
@@ -807,19 +807,19 @@ async function search({startIndex, reset = false} = {}){
 
     renderResults(items);
 
-    if(total === 0){
+    if(filteredTotal === 0){
       setHtml("resultSummary", "No items found");
     } else {
-      const startNumber = Math.min(total, searchState.startIndex + 1);
-      let endNumber = returned ? Math.min(total, searchState.startIndex + returned) : Math.min(total, searchState.startIndex + searchState.limit);
+      const startNumber = Math.min(filteredTotal, searchState.startIndex + 1);
+      let endNumber = returned ? Math.min(filteredTotal, searchState.startIndex + returned) : Math.min(filteredTotal, searchState.startIndex + searchState.limit);
       if(endNumber < startNumber){
         endNumber = startNumber;
       }
-      const summaryText = `Showing items ${startNumber}–${endNumber} of ${total}`;
+      const summaryText = `Showing items ${startNumber}–${endNumber} of ${filteredTotal}`;
       setHtml("resultSummary", summaryText);
     }
 
-    updatePaginationControls(returned, total);
+    updatePaginationControls(returned, filteredTotal);
   } catch (e) {
     searchState.startIndex = previousStartIndex;
     searchState.queryKey = previousQueryKey;
