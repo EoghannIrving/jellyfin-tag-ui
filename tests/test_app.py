@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import unittest
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import requests  # type: ignore[import-untyped]
@@ -1184,6 +1185,56 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
         self.assertEqual(data.get("source"), "aggregated")
         self.assertEqual(data.get("tags"), ["Alpha", "beta"])
         self.assertTrue(any("Tags" in fields for fields in captured_fields))
+
+    def test_aggregated_fallback_fetches_until_short_page(self):
+        starts = []
+
+        def make_item(tag: str) -> Dict[str, Any]:
+            return {"TagItems": [{"Name": tag}], "Tags": [], "InheritedTags": []}
+
+        first_page = [make_item("Alpha") for _ in range(500)]
+        second_page = [make_item("Beta") for _ in range(50)]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            starts.append((start, limit))
+            if start == 0:
+                return {"Items": first_page, "TotalRecordCount": 425}
+            if start == 500:
+                return {"Items": second_page, "TotalRecordCount": 425}
+            return {"Items": [], "TotalRecordCount": 425}
+
+        with patch("app.jf_get", side_effect=RuntimeError("boom")):
+            with patch("app.page_items", side_effect=fake_page_items):
+                response = self.client.post(
+                    "/api/tags",
+                    json={
+                        "base": "http://example.com",
+                        "apiKey": "dummy",
+                        "libraryId": "lib",
+                        "userId": "user",
+                        "types": ["Movie"],
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json)
+        data = response.get_json()
+        self.assertEqual(data.get("source"), "aggregated")
+        self.assertIn((0, 500), starts)
+        self.assertIn((500, 500), starts)
+        self.assertEqual(data.get("tags"), ["Alpha", "Beta"])
 
 
 class IndexConfigRenderTest(unittest.TestCase):
