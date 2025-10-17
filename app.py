@@ -705,12 +705,13 @@ def api_tags():
                 items = payload.get("Items", [])
                 if not items:
                     break
-                total_processed += len(items)
+                batch_size = len(items)
+                total_processed += batch_size
                 for it in items:
                     for name in item_tags(it):
                         _add_tag_count(tag_counts, canonical_names, name, 1)
-                start += len(items)
-                if start >= payload.get("TotalRecordCount", start):
+                start += batch_size
+                if batch_size < limit:
                     break
             logger.info(
                 "Aggregated %d items to collect %d unique tags",
