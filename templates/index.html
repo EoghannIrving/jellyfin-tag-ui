@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jellyfin Tag UI</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Jellyfin Tag UI</h1>
+
+    <section class="card">
+      <h2>Server & Auth</h2>
+      <div class="grid">
+        <label>Jellyfin Base URL
+          <input id="base" placeholder="http://192.168.0.50:8096" />
+        </label>
+        <label>API Key
+          <input id="apiKey" placeholder="JELLYFIN_API_KEY" />
+        </label>
+      </div>
+      <div class="row">
+        <button id="btnUsers">Load Users</button>
+        <select id="userId"></select>
+        <button id="btnLibs">Load Libraries</button>
+        <select id="libraryId"></select>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Filters</h2>
+      <div class="grid">
+        <label>Include Types (comma)
+          <input id="types" value="Movie,Series,Episode" />
+        </label>
+        <label>Include Tags (comma/semicolon)
+          <input id="includeTags" placeholder="Christmas;Classic" />
+        </label>
+        <label>Exclude Tags (comma/semicolon)
+          <input id="excludeTags" placeholder="Documentary" />
+        </label>
+      </div>
+      <div class="row">
+        <button id="btnTags">List Tags in Library</button>
+        <div id="tagList"></div>
+      </div>
+      <div class="row">
+        <button id="btnSearch">Search Items</button>
+        <button id="btnExport">Export CSV</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Results</h2>
+      <div id="results"></div>
+    </section>
+
+    <section class="card">
+      <h2>Apply Changes</h2>
+      <p>Select items below and specify tags to add/remove, then click Apply.</p>
+      <div class="grid">
+        <label>Tags to Add (comma/semicolon)
+          <input id="applyAdd" />
+        </label>
+        <label>Tags to Remove (comma/semicolon)
+          <input id="applyRemove" />
+        </label>
+      </div>
+      <div class="row">
+        <button id="btnApply">Apply to Selected</button>
+        <span id="applyStatus"></span>
+      </div>
+    </section>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
