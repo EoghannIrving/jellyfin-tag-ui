@@ -4,6 +4,10 @@ import types
 import unittest
 from unittest.mock import patch
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 if "dotenv" not in sys.modules:
     mock_dotenv = types.ModuleType("dotenv")
 
@@ -13,7 +17,7 @@ if "dotenv" not in sys.modules:
     setattr(mock_dotenv, "load_dotenv", _load_dotenv)  # type: ignore[attr-defined]
     sys.modules["dotenv"] = mock_dotenv
 
-from app import app, item_tags
+from app import COLLECTION_ITEM_TYPES, app, item_tags  # noqa: E402
 
 
 class ItemTagsTest(unittest.TestCase):
@@ -39,7 +43,15 @@ class ApiItemsFieldsTest(unittest.TestCase):
         captured = {}
 
         def fake_page_items(
-            base, api_key, user_id, lib_id, include_types, fields, start, limit
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
         ):
             captured["fields"] = fields
             return {"Items": [], "TotalRecordCount": 0}
@@ -68,7 +80,15 @@ class ApiExportFieldsTest(unittest.TestCase):
         captured_fields = []
 
         def fake_page_items(
-            base, api_key, user_id, lib_id, include_types, fields, start, limit
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
         ):
             captured_fields.append(fields)
             if start == 0:
@@ -106,6 +126,134 @@ class ApiExportFieldsTest(unittest.TestCase):
         self.assertIn("Drama;Sci-Fi", csv_output)
 
 
+class ApiItemsCollectionExclusionTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_excludes_collections_when_flagged(self):
+        captured = {}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+        ):
+            captured.setdefault("exclude_types", exclude_types)
+            return {
+                "Items": [
+                    {
+                        "Id": "1",
+                        "Type": "Movie",
+                        "Name": "Movie Example",
+                        "Path": "/movie.mkv",
+                        "Tags": [],
+                    },
+                    {
+                        "Id": "2",
+                        "Type": "BoxSet",
+                        "Name": "Collection Example",
+                        "Path": None,
+                        "Tags": [],
+                    },
+                ],
+                "TotalRecordCount": 2,
+            }
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie", "Series"],
+                    "excludeCollections": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data.get("Items", [])), 1)
+        self.assertTrue(all(item["Type"] != "BoxSet" for item in data.get("Items", [])))
+        self.assertEqual(
+            set(captured.get("exclude_types") or ()), set(COLLECTION_ITEM_TYPES)
+        )
+
+
+class ApiExportCollectionExclusionTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_export_omits_collections_when_flagged(self):
+        captured = []
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+        ):
+            captured.append(exclude_types)
+            if start == 0:
+                return {
+                    "Items": [
+                        {
+                            "Id": "1",
+                            "Name": "Movie Example",
+                            "Path": "/movie.mkv",
+                            "ProviderIds": {},
+                            "Type": "Movie",
+                            "TagItems": [],
+                            "Tags": [],
+                        },
+                        {
+                            "Id": "2",
+                            "Name": "Collection Example",
+                            "Path": None,
+                            "ProviderIds": {},
+                            "Type": "BoxSet",
+                            "TagItems": [],
+                            "Tags": [],
+                        },
+                    ],
+                    "TotalRecordCount": 2,
+                }
+            return {"Items": [], "TotalRecordCount": 2}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/export",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie", "Series"],
+                    "excludeCollections": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        csv_output = response.data.decode("utf-8")
+        self.assertIn("Movie Example", csv_output)
+        self.assertNotIn("Collection Example", csv_output)
+        self.assertTrue(
+            any(set(types or ()) == set(COLLECTION_ITEM_TYPES) for types in captured)
+        )
+
+
 class ApiTagsAggregatedFallbackTest(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
@@ -114,7 +262,15 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
         captured_fields = []
 
         def fake_page_items(
-            base, api_key, user_id, lib_id, include_types, fields, start, limit
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
         ):
             captured_fields.append(fields)
             if start == 0:
