@@ -699,14 +699,21 @@ def api_tags():
         try:
             fields = ["TagItems", "Tags", "InheritedTags", "Type"]
             start = 0
-            limit = 500
+            fetch_limit = 500
             tag_counts: Counter[str] = Counter()
             canonical_names: Dict[str, str] = {}
             total_processed = 0
             logger.info("Starting aggregated tag collection")
             while True:
                 payload = page_items(
-                    base, api_key, user_id, lib_id, include_types, fields, start, limit
+                    base,
+                    api_key,
+                    user_id,
+                    lib_id,
+                    include_types,
+                    fields,
+                    start,
+                    fetch_limit,
                 )
                 items = payload.get("Items", [])
                 if not items:
@@ -717,7 +724,16 @@ def api_tags():
                     for name in item_tags(it):
                         _add_tag_count(tag_counts, canonical_names, name, 1)
                 start += batch_size
-                if batch_size < limit:
+                total_count = payload.get("TotalRecordCount")
+                if (
+                    total_count is not None
+                    and isinstance(total_count, int)
+                    and start < total_count
+                ):
+                    if 0 < batch_size < fetch_limit:
+                        fetch_limit = batch_size
+                    continue
+                if batch_size < fetch_limit:
                     break
             logger.info(
                 "Aggregated %d items to collect %d unique tags",
@@ -824,8 +840,18 @@ def api_items():
             if good(it):
                 matched_items.append(_serialize_item_for_response(it))
 
-        current_start += len(raw_items)
-        if len(raw_items) < fetch_limit:
+        page_size = len(raw_items)
+        current_start += page_size
+        total_count = payload.get("TotalRecordCount")
+        if (
+            total_count is not None
+            and isinstance(total_count, int)
+            and current_start < total_count
+        ):
+            if 0 < page_size < fetch_limit:
+                fetch_limit = page_size
+            continue
+        if page_size < fetch_limit:
             break
 
     total_matches = len(matched_items)
@@ -896,8 +922,7 @@ def api_export():
         "ProductionYear",
     ]
     start = 0
-    limit = 500
-    fetch_limit = limit
+    fetch_limit = 500
     collected_items: List[Dict[str, Any]] = []
     total_processed = 0
     while True:
@@ -909,7 +934,7 @@ def api_export():
             include_types,
             fields,
             start,
-            limit,
+            fetch_limit,
             exclude_types=excluded_types,
             sort_by=sort_by,
             sort_order=sort_order,
@@ -924,8 +949,18 @@ def api_export():
         total_processed += len(items)
         for it in items:
             collected_items.append(_serialize_item_for_response(it))
-        start += len(raw_items)
-        if len(raw_items) < fetch_limit:
+        page_size = len(raw_items)
+        start += page_size
+        total_count = payload.get("TotalRecordCount")
+        if (
+            total_count is not None
+            and isinstance(total_count, int)
+            and start < total_count
+        ):
+            if 0 < page_size < fetch_limit:
+                fetch_limit = page_size
+            continue
+        if page_size < fetch_limit:
             break
     logger.info("/api/export processed %d items for CSV export", total_processed)
 
