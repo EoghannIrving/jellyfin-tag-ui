@@ -46,13 +46,25 @@
       </div>
       <div class="row tag-controls">
         <button id="btnTags">List Tags in Library</button>
-        <input
-          id="tagSearch"
-          type="text"
-          placeholder="Filter tags"
-          aria-label="Filter tags"
-        />
-        <div id="tagList"></div>
+        <div class="tag-panel">
+          <div class="tag-panel-header">
+            <div class="tag-panel-title">Available Tags</div>
+            <div class="tag-panel-subtitle">Click to add/remove</div>
+            <label class="tag-search" for="tagSearch">
+              <span class="sr-only">Filter tags</span>
+              <input
+                id="tagSearch"
+                type="text"
+                placeholder="Filter tags"
+                aria-label="Filter tags"
+              />
+            </label>
+          </div>
+          <div class="tag-panel-body">
+            <div id="tagList" class="tag-grid" role="listbox" aria-label="Available tags"></div>
+          </div>
+          <div class="tag-panel-footer" id="tagActionSummary" aria-live="polite"></div>
+        </div>
       </div>
       <div class="row">
         <button id="btnSearch">Search Items</button>
