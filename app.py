@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -301,6 +302,61 @@ def item_tags(item):
     return names
 
 
+def _normalized_count(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(count, 0)
+
+
+def _sorted_tag_names(
+    tag_counts: Mapping[str, int], canonical_names: Optional[Mapping[str, str]] = None
+) -> List[str]:
+    sortable: List[Tuple[str, int]] = []
+    for key, count in tag_counts.items():
+        name = canonical_names.get(key, key) if canonical_names else key
+        sortable.append((name, count))
+    sortable.sort(key=lambda item: (-item[1], item[0].casefold(), item[0]))
+    return [name for name, _ in sortable]
+
+
+def _tag_counts_from_endpoint_items(
+    items: Sequence[Mapping[str, Any]],
+) -> Tuple[Counter[str], Dict[str, str]]:
+    counts: Counter[str] = Counter()
+    canonical: Dict[str, str] = {}
+    for entry in items:
+        name = entry.get("Name")
+        if not isinstance(name, str) or not name:
+            continue
+        count: Optional[int] = None
+        for key in ("ItemCount", "Count"):
+            if key in entry:
+                count = _normalized_count(entry.get(key))
+                if count is not None:
+                    break
+        _add_tag_count(
+            counts,
+            canonical,
+            name,
+            (count if count is not None else 1),
+        )
+    return counts, canonical
+
+
+def _add_tag_count(
+    counts: Counter[str], canonical_names: Dict[str, str], name: str, count: int
+) -> None:
+    if not name or count <= 0:
+        return
+    key = name.casefold()
+    canonical_names.setdefault(key, name)
+    counts[key] += count
+
+
 def _serialize_item_for_response(item: Mapping[str, Any]) -> Dict[str, Any]:
     name = item.get("Name", "")
     sort_name = item.get("SortName") or name
@@ -488,10 +544,10 @@ def api_tags():
                 api_key,
                 params=params,
             )
-            names = sorted(
-                [x.get("Name", "") for x in res.get("Items", []) if x.get("Name")],
-                key=str.lower,
+            tag_counts, canonical_names = _tag_counts_from_endpoint_items(
+                res.get("Items", [])
             )
+            names = _sorted_tag_names(tag_counts, canonical_names)
             logger.info(
                 "/api/tags returning %d tags via users-items-tags endpoint", len(names)
             )
@@ -508,10 +564,10 @@ def api_tags():
             api_key,
             params={"ParentId": lib_id, "Recursive": "true"},
         )
-        names = sorted(
-            [x.get("Name", "") for x in res.get("Items", []) if x.get("Name")],
-            key=str.lower,
+        tag_counts, canonical_names = _tag_counts_from_endpoint_items(
+            res.get("Items", [])
         )
+        names = _sorted_tag_names(tag_counts, canonical_names)
         logger.info("/api/tags returning %d tags via items-tags endpoint", len(names))
         return jsonify({"tags": names, "source": "items-tags"})
     except Exception:
@@ -523,7 +579,8 @@ def api_tags():
             fields = ["TagItems", "Tags", "Type"]
             start = 0
             limit = 500
-            tags = set()
+            tag_counts: Counter[str] = Counter()
+            canonical_names: Dict[str, str] = {}
             total_processed = 0
             logger.info("Starting aggregated tag collection")
             while True:
@@ -536,17 +593,20 @@ def api_tags():
                 total_processed += len(items)
                 for it in items:
                     for name in item_tags(it):
-                        tags.add(name)
+                        _add_tag_count(tag_counts, canonical_names, name, 1)
                 start += len(items)
                 if start >= payload.get("TotalRecordCount", start):
                     break
             logger.info(
                 "Aggregated %d items to collect %d unique tags",
                 total_processed,
-                len(tags),
+                len(tag_counts),
             )
             return jsonify(
-                {"tags": sorted(tags, key=str.lower), "source": "aggregated"}
+                {
+                    "tags": _sorted_tag_names(tag_counts, canonical_names),
+                    "source": "aggregated",
+                }
             )
         except Exception as e2:
             logger.exception("Aggregated tag fallback failed")

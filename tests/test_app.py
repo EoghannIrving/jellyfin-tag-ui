@@ -1223,5 +1223,86 @@ class ApiApplyUpdateTest(unittest.TestCase):
         self.assertEqual(entry.get("errors"), ["boom"])
 
 
+class ApiTagsOrderingTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_user_endpoint_orders_by_count_then_name(self):
+        payload = {
+            "Items": [
+                {"Name": "Comedy", "ItemCount": 5},
+                {"Name": "action", "ItemCount": 5},
+                {"Name": "Drama", "ItemCount": 2},
+            ]
+        }
+
+        with patch("app.jf_get", return_value=payload) as mock_get:
+            response = self.client.post(
+                "/api/tags",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "token",
+                    "libraryId": "lib",
+                    "userId": "user",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"tags": ["action", "Comedy", "Drama"], "source": "users-items-tags"},
+        )
+        mock_get.assert_called_once()
+
+    def test_aggregated_fallback_orders_by_frequency(self):
+        failures = [requests.HTTPError("boom"), requests.HTTPError("boom")]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+        ):
+            if start == 0:
+                return {
+                    "Items": [
+                        {"TagItems": [{"Name": "Sci-Fi"}], "Tags": ["Drama"]},
+                        {"TagItems": [], "Tags": ["drama", "Comedy"]},
+                    ],
+                    "TotalRecordCount": 3,
+                }
+            if start == 2:
+                return {
+                    "Items": [{"TagItems": [{"Name": "Sci-Fi"}], "Tags": []}],
+                    "TotalRecordCount": 3,
+                }
+            return {"Items": [], "TotalRecordCount": 3}
+
+        with patch("app.jf_get", side_effect=failures) as mock_get, patch(
+            "app.page_items", side_effect=fake_page_items
+        ) as mock_page_items:
+            response = self.client.post(
+                "/api/tags",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "token",
+                    "libraryId": "lib",
+                    "userId": "user",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"tags": ["Drama", "Sci-Fi", "Comedy"], "source": "aggregated"},
+        )
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertGreaterEqual(mock_page_items.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
