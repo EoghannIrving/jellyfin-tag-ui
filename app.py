@@ -12,7 +12,7 @@ from dotenv import load_dotenv  # type: ignore[import-not-found]
 
 _ENV_PATH = Path(__file__).resolve().with_name(".env")
 if _ENV_PATH.exists():
-    load_dotenv(dotenv_path=_ENV_PATH, override=True)
+    load_dotenv(dotenv_path=_ENV_PATH)
 else:
     logging.getLogger(__name__).warning("Missing .env file at %s", _ENV_PATH)
 
