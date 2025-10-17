@@ -109,11 +109,17 @@
             <p class="apply-panel-description">Select items and specify tags to add or remove, then click Apply.</p>
           </div>
           <div class="apply-panel-body">
-            <label>Tags to Add (comma/semicolon)
-              <input id="applyAdd" />
+            <label>Tags to Add
+              <div class="chip-input" id="applyAddField">
+                <div id="applyAddChips" class="chip-list" role="list"></div>
+                <input id="applyAdd" type="hidden" />
+              </div>
             </label>
-            <label>Tags to Remove (comma/semicolon)
-              <input id="applyRemove" />
+            <label>Tags to Remove
+              <div class="chip-input" id="applyRemoveField">
+                <div id="applyRemoveChips" class="chip-list" role="list"></div>
+                <input id="applyRemove" type="hidden" />
+              </div>
             </label>
           </div>
           <div class="apply-panel-footer">

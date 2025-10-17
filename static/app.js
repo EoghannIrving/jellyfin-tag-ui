@@ -111,6 +111,16 @@ const tagSearchInput = document.getElementById("tagSearch");
 const tagActionSummaryEl = document.getElementById("tagActionSummary");
 const selectedItemsListEl = document.getElementById("selectedItemsList");
 const selectedItemsPanelEl = document.getElementById("selectedItemsPanel");
+const chipFields = {
+  add: {
+    input: document.getElementById("applyAdd"),
+    list: document.getElementById("applyAddChips"),
+  },
+  remove: {
+    input: document.getElementById("applyRemove"),
+    list: document.getElementById("applyRemoveChips"),
+  },
+};
 
 function compareByNameAsc(a, b){
   const options = {sensitivity: "base"};
@@ -661,10 +671,97 @@ document.getElementById("btnTags").addEventListener("click", async ()=>{
   }
 });
 
+function normalizeTagList(tags) {
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+  const seen = new Set();
+  const normalized = [];
+  tags.forEach((tag) => {
+    const trimmed = (tag || "").trim();
+    if (!trimmed || seen.has(trimmed)) {
+      return;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  });
+  return normalized;
+}
+
+function renderChipField(type, tags) {
+  const field = chipFields[type];
+  if (!field || !field.list) {
+    return;
+  }
+  const listEl = field.list;
+  listEl.innerHTML = "";
+  const normalized = normalizeTagList(tags);
+  if (!normalized.length) {
+    const empty = document.createElement("div");
+    empty.className = "chip-empty";
+    empty.textContent = "No tags selected";
+    empty.setAttribute("aria-hidden", "true");
+    listEl.appendChild(empty);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  normalized.forEach((tag) => {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.dataset.tag = tag;
+    chip.dataset.type = type;
+    chip.setAttribute("role", "listitem");
+
+    const label = document.createElement("span");
+    label.className = "chip-label";
+    label.textContent = tag;
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "chip-remove";
+    removeButton.dataset.tag = tag;
+    removeButton.dataset.type = type;
+    removeButton.setAttribute("aria-label", `Remove ${tag}`);
+    removeButton.innerHTML = "<span aria-hidden=\"true\">×</span>";
+
+    chip.appendChild(label);
+    chip.appendChild(removeButton);
+    fragment.appendChild(chip);
+  });
+  listEl.appendChild(fragment);
+}
+
+function updateChipField(type, tags) {
+  const field = chipFields[type];
+  if (!field || !field.input) {
+    return;
+  }
+  const normalized = normalizeTagList(tags);
+  field.input.value = normalized.join("; ");
+  renderChipField(type, normalized);
+}
+
 function setTagInputs(addTags, removeTags) {
-  const joiner = "; ";
-  document.getElementById("applyAdd").value = addTags.join(joiner);
-  document.getElementById("applyRemove").value = removeTags.join(joiner);
+  updateChipField("add", addTags);
+  updateChipField("remove", removeTags);
+}
+
+function getChipTags(type) {
+  const field = chipFields[type];
+  if (!field || !field.input) {
+    return [];
+  }
+  return normalizeTagList(splitTags(field.input.value));
+}
+
+function findTagButtonByTag(tag) {
+  const buttons = document.querySelectorAll("#tagList .tag");
+  for (const button of buttons) {
+    if ((button.dataset.tag || "") === tag) {
+      return button;
+    }
+  }
+  return null;
 }
 
 document.getElementById("tagList").addEventListener("click", (event) => {
@@ -674,10 +771,8 @@ document.getElementById("tagList").addEventListener("click", (event) => {
   }
 
   const tag = target.dataset.tag;
-  const addInput = document.getElementById("applyAdd");
-  const removeInput = document.getElementById("applyRemove");
-  const addTags = splitTags(addInput.value);
-  const removeTags = splitTags(removeInput.value);
+  const addTags = getChipTags("add");
+  const removeTags = getChipTags("remove");
 
   const currentState = target.dataset.state || "";
 
@@ -727,6 +822,40 @@ document.getElementById("tagList").addEventListener("click", (event) => {
   setTagInputs(addTags, removeTags);
   updateTagActionSummary();
 });
+
+Object.entries(chipFields).forEach(([type, field]) => {
+  if (!field || !field.list) {
+    return;
+  }
+  field.list.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(".chip-remove");
+    if (!removeButton) {
+      return;
+    }
+    const tag = removeButton.dataset.tag;
+    if (!tag) {
+      return;
+    }
+    const current = {
+      add: getChipTags("add"),
+      remove: getChipTags("remove"),
+    };
+    current[type] = current[type].filter((existing) => existing !== tag);
+    let nextState = tagStates.get(tag) || "";
+    if (nextState === type) {
+      tagStates.delete(tag);
+      nextState = "";
+    }
+    const tagButton = findTagButtonByTag(tag);
+    if (tagButton) {
+      applyTagState(tagButton, nextState);
+    }
+    setTagInputs(current.add, current.remove);
+    updateTagActionSummary();
+  });
+});
+
+setTagInputs(getChipTags("add"), getChipTags("remove"));
 
 if(selectedItemsPanelEl){
   selectedItemsPanelEl.addEventListener("click", (event) => {
@@ -880,8 +1009,8 @@ document.getElementById("btnExport").addEventListener("click", async ()=>{
 });
 
 document.getElementById("btnApply").addEventListener("click", async ()=>{
-  const adds = splitTags(document.getElementById("applyAdd").value);
-  const rems = splitTags(document.getElementById("applyRemove").value);
+  const adds = getChipTags("add");
+  const rems = getChipTags("remove");
   const selectedIds = Array.from(searchState.selectedIds);
   if(selectedIds.length === 0){ alert("No items selected"); return; }
 
