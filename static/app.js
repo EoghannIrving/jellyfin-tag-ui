@@ -63,6 +63,10 @@ async function search(pageStart=0){
     limit: 500
   };
   const data = await api("/api/items", body);
+  const returned = data.Items.length;
+  const total = data.TotalRecordCount ?? returned;
+  setHtml("resultSummary", `Showing ${returned} of ${total} items`);
+
   const rows = data.Items.map(it => `
     <tr>
       <td>${checkbox(it.Id)}</td>
@@ -79,10 +83,31 @@ async function search(pageStart=0){
     </table>
   `;
   setHtml("results", table);
+
+  const updateSelectionSummary = ()=>{
+    const selected = document.querySelectorAll("input.sel:checked").length;
+    const label = selected === 0 ? "No items selected" : `${selected} item${selected === 1 ? "" : "s"} selected`;
+    setHtml("selectionSummary", label);
+  };
+
   const selAll = document.getElementById("selAll");
+  const rowCheckboxes = Array.from(document.querySelectorAll("input.sel"));
+
   selAll.addEventListener("change", ()=>{
-    document.querySelectorAll("input.sel").forEach(cb => cb.checked = selAll.checked);
+    rowCheckboxes.forEach(cb => cb.checked = selAll.checked);
+    updateSelectionSummary();
   });
+
+  rowCheckboxes.forEach(cb => cb.addEventListener("change", ()=>{
+    if(!cb.checked){
+      selAll.checked = false;
+    } else if(rowCheckboxes.every(c => c.checked)){
+      selAll.checked = true;
+    }
+    updateSelectionSummary();
+  }));
+
+  updateSelectionSummary();
 }
 
 document.getElementById("btnSearch").addEventListener("click", ()=>search(0));
