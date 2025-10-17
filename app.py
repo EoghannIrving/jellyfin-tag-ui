@@ -40,7 +40,25 @@ def normalize_tags(tag_string):
 
 
 def item_tags(item):
-    return [t.get("Name", "") for t in (item.get("TagItems") or []) if t.get("Name")]
+    names = []
+    seen = set()
+
+    for tag in item.get("TagItems") or []:
+        name = (tag or {}).get("Name")
+        if name:
+            key = name.lower()
+            if key not in seen:
+                seen.add(key)
+                names.append(name)
+
+    for name in item.get("Tags") or []:
+        if isinstance(name, str) and name:
+            key = name.lower()
+            if key not in seen:
+                seen.add(key)
+                names.append(name)
+
+    return names
 
 
 def page_items(
@@ -167,7 +185,7 @@ def api_items():
     start = int(data.get("startIndex", 0))
     limit = int(data.get("limit", 200))
 
-    fields = ["TagItems", "Name", "Path", "ProviderIds", "Type"]
+    fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     payload = page_items(
         base, api_key, user_id, lib_id, include_types, fields, start, limit
     )
@@ -208,7 +226,7 @@ def api_export():
     lib_id = data["libraryId"]
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
 
-    fields = ["TagItems", "Name", "Path", "ProviderIds", "Type"]
+    fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     start = 0
     limit = 500
     rows = []
