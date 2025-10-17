@@ -355,7 +355,9 @@ def api_items():
     exclude_collections = bool(data.get("excludeCollections"))
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
     start = int(data.get("startIndex", 0))
-    limit = int(data.get("limit", 200))
+    limit = int(data.get("limit", 100))
+    if limit > 100:
+        limit = 100
     logger.info(
         "POST /api/items base=%s library=%s user=%s include=%s exclude=%s start=%d limit=%d",
         base or "",
