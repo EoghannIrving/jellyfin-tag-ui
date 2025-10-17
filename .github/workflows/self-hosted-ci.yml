@@ -1,0 +1,101 @@
+name: Self-hosted Python 3.13 CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '30 5 * * *'
+
+env:
+  PIP_CACHE_DIR: ~/.cache/pip
+
+jobs:
+  python-pr:
+    name: Python PR Checks (3.13)
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Normalize environment
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade \
+            black==24.4.2 \
+            ruff==0.5.7 \
+            mypy==1.10.0
+
+      - name: Lint with Black
+        run: black --check .
+
+      - name: Lint with Ruff
+        run: ruff check .
+
+      - name: Type-check with mypy
+        run: mypy .
+
+  python-full:
+    name: Python Full Test Suite (3.13)
+    runs-on: self-hosted
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Normalize environment
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade \
+            black==24.4.2 \
+            ruff==0.5.7 \
+            mypy==1.10.0 \
+            pytest==8.3.2
+          python -m pip install -r requirements.txt
+
+      - name: Run Black
+        run: black --check .
+
+      - name: Run Ruff
+        run: ruff check .
+
+      - name: Run mypy
+        run: mypy .
+
+      - name: Run pytest
+        run: pytest
