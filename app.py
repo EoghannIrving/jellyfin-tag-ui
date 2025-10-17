@@ -397,13 +397,16 @@ def item_tags(item):
     seen = set()
 
     def _add(name: Optional[str]) -> None:
-        if not isinstance(name, str) or not name:
+        if not isinstance(name, str):
             return
-        key = name.lower()
+        trimmed = name.strip()
+        if not trimmed:
+            return
+        key = trimmed.casefold()
         if key in seen:
             return
         seen.add(key)
-        names.append(name)
+        names.append(trimmed)
 
     for tag in item.get("TagItems") or []:
         _add((tag or {}).get("Name"))
@@ -465,10 +468,13 @@ def _tag_counts_from_endpoint_items(
 def _add_tag_count(
     counts: Counter[str], canonical_names: Dict[str, str], name: str, count: int
 ) -> None:
-    if not name or count <= 0:
+    if count <= 0:
         return
-    key = name.casefold()
-    canonical_names.setdefault(key, name)
+    trimmed = name.strip()
+    if not trimmed:
+        return
+    key = trimmed.casefold()
+    canonical_names.setdefault(key, trimmed)
     counts[key] += count
 
 
