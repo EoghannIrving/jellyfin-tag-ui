@@ -22,9 +22,15 @@
       </div>
       <div class="row">
         <button id="btnUsers">Load Users</button>
-        <select id="userId"></select>
+        <span id="userStatus" class="status" aria-live="polite">Click Load Users to fetch options.</span>
+        <select id="userId" disabled>
+          <option value="" disabled selected>Load users first</option>
+        </select>
         <button id="btnLibs">Load Libraries</button>
-        <select id="libraryId"></select>
+        <span id="libraryStatus" class="status" aria-live="polite">Load users before libraries.</span>
+        <select id="libraryId" disabled>
+          <option value="" disabled selected>Load libraries first</option>
+        </select>
       </div>
     </section>
 
