@@ -113,6 +113,7 @@ document.getElementById("btnApply").addEventListener("click", async ()=>{
   const body = {
     base: val("base"),
     apiKey: val("apiKey"),
+    userId: document.getElementById("userId").value,
     changes: selected.map(id => ({id: id, add: adds, remove: rems}))
   };
   setHtml("applyStatus", "Applying...");

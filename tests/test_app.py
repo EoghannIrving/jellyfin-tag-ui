@@ -240,5 +240,81 @@ class ApiConfigFallbackTest(unittest.TestCase):
         self.assertEqual(captured["api_key"], "env-key")
 
 
+class ApiApplyUserScopedTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_user_scoped_endpoint_invoked_when_user_id_provided(self):
+        calls = []
+
+        def fake_jf_post(url, api_key, params=None, timeout=30):
+            calls.append((url, params))
+            return {}
+
+        payload = {
+            "base": "http://example.com",
+            "apiKey": "dummy",
+            "userId": "user123",
+            "changes": [
+                {"id": "item1", "add": ["NewTag"], "remove": []},
+            ],
+        }
+
+        with patch("app.jf_post", side_effect=fake_jf_post):
+            response = self.client.post("/api/apply", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "http://example.com/Users/user123/Items/item1/Tags",
+                    {"AddTags": "NewTag"},
+                )
+            ],
+        )
+
+    def test_falls_back_to_global_endpoint_when_user_scope_fails(self):
+        calls = []
+
+        class Boom(Exception):
+            pass
+
+        def fake_jf_post(url, api_key, params=None, timeout=30):
+            calls.append((url, params))
+            if len(calls) == 1:
+                raise Boom("user endpoint down")
+            return {}
+
+        payload = {
+            "base": "http://example.com",
+            "apiKey": "dummy",
+            "userId": "user123",
+            "changes": [
+                {"id": "item42", "add": ["TagA"], "remove": []},
+            ],
+        }
+
+        with patch("app.jf_post", side_effect=fake_jf_post):
+            response = self.client.post("/api/apply", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "http://example.com/Users/user123/Items/item42/Tags",
+                    {"AddTags": "TagA"},
+                ),
+                ("http://example.com/Items/item42/Tags", {"AddTags": "TagA"}),
+            ],
+        )
+        data = response.get_json()
+        self.assertTrue(response.is_json)
+        updated = data.get("updated", [])[0]
+        self.assertEqual(updated.get("added"), ["TagA"])
+        self.assertEqual(updated.get("errors"), [])
+
+
 if __name__ == "__main__":
     unittest.main()
