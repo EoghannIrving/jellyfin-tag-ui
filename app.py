@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from flask import Flask, render_template, request, jsonify, send_file
 from flask.typing import ResponseReturnValue
@@ -78,15 +78,75 @@ def jf_get(url: str, api_key: str, params=None, timeout=30):
     return r.json()
 
 
-def jf_post(url: str, api_key: str, params=None, timeout=30):
-    logger.debug("POST %s params=%s", url, params)
+def jf_post(url: str, api_key: str, params=None, json=None, timeout=30):
+    logger.debug("POST %s params=%s json=%s", url, params, json)
     r = requests.post(
-        url, headers=jf_headers(api_key), params=params or {}, timeout=timeout
+        url,
+        headers=jf_headers(api_key),
+        params=params or {},
+        json=json,
+        timeout=timeout,
     )
     r.raise_for_status()
     if r.text and r.headers.get("content-type", "").startswith("application/json"):
         return r.json()
     return {}
+
+
+def jf_update_tags(
+    base: str,
+    api_key: str,
+    item_id: str,
+    add: Sequence[str],
+    remove: Sequence[str],
+):
+    if not item_id:
+        raise ValueError("Item ID is required to update tags")
+
+    item_endpoint = f"{base}/Items/{item_id}"
+    logger.debug("Fetching item %s for tag update", item_endpoint)
+    item = jf_get(item_endpoint, api_key)
+
+    existing_tags = item_tags(item)
+    logger.debug("Existing tags for %s: %s", item_id, existing_tags)
+
+    merged: Dict[str, str] = {
+        tag.lower(): tag for tag in existing_tags if isinstance(tag, str) and tag
+    }
+
+    for tag in add:
+        if tag:
+            merged[tag.lower()] = tag
+
+    for tag in remove:
+        if tag:
+            merged.pop(tag.lower(), None)
+
+    final_tags = sorted(merged.values(), key=str.lower)
+    payload = {"Id": item_id, "Tags": final_tags}
+    logger.debug(
+        "Posting updated tags for %s to %s with payload %s",
+        item_id,
+        item_endpoint,
+        payload,
+    )
+
+    try:
+        jf_post(item_endpoint, api_key, json=payload)
+        return final_tags
+    except requests.HTTPError as first_error:
+        logger.warning(
+            "Minimal payload for item %s rejected (%s); retrying with metadata",
+            item_id,
+            first_error,
+        )
+        extended_payload = {
+            **payload,
+            "Name": item.get("Name", ""),
+            "ProviderIds": item.get("ProviderIds") or {},
+        }
+        jf_post(item_endpoint, api_key, json=extended_payload)
+        return final_tags
 
 
 def normalize_tags(tag_string):
@@ -453,59 +513,9 @@ def api_apply():
     if error is not None:
         return error
 
-    def _apply_tag_update(
-        base_url: str,
-        api_key_value: str,
-        item_id: Optional[str],
-        scoped_user_id: Optional[str],
-        params: Mapping[str, str],
-        action: str,
-    ) -> Optional[Exception]:
-        endpoints = []
-        if scoped_user_id:
-            endpoints.append(
-                (
-                    "user",
-                    f"{base_url}/Users/{scoped_user_id}/Items/{item_id}/Tags",
-                )
-            )
-        endpoints.append(("global", f"{base_url}/Items/{item_id}/Tags"))
-        last_error: Optional[Exception] = None
-        for scope, url in endpoints:
-            scope_label = "user-scoped" if scope == "user" else "global"
-            try:
-                jf_post(url, api_key_value, params=params)
-                if scope == "global" and scoped_user_id and last_error is not None:
-                    logger.info(
-                        "%s for item %s succeeded via global endpoint after user-scoped failure",
-                        action,
-                        item_id,
-                    )
-                else:
-                    logger.debug(
-                        "%s for item %s succeeded via %s endpoint",
-                        action,
-                        item_id,
-                        scope_label,
-                    )
-                return None
-            except (
-                Exception
-            ) as exc:  # pragma: no cover - exercised in tests via fallbacks
-                last_error = exc
-                if scope == "user":
-                    logger.exception(
-                        "User-scoped %s request failed for item %s; attempting global endpoint",
-                        action,
-                        item_id,
-                    )
-                else:
-                    logger.exception(
-                        "Global %s request failed for item %s",
-                        action,
-                        item_id,
-                    )
-        return last_error
+    if not user_id:
+        logger.warning("POST /api/apply missing required userId")
+        return jsonify({"error": "userId is required"}), 400
 
     results = []
     for ch in changes:
@@ -519,20 +529,23 @@ def api_apply():
             rems,
         )
         r = {"id": iid, "added": [], "removed": [], "errors": []}
-        if adds:
-            params = {"AddTags": ",".join(adds)}
-            error = _apply_tag_update(base, api_key, iid, user_id, params, "AddTags")
-            if error is None:
-                r["added"] = adds
-            else:
-                r["errors"].append(f"AddTags: {error}")
-        if rems:
-            params = {"RemoveTags": ",".join(rems)}
-            error = _apply_tag_update(base, api_key, iid, user_id, params, "RemoveTags")
-            if error is None:
-                r["removed"] = rems
-            else:
-                r["errors"].append(f"RemoveTags: {error}")
+        if not iid:
+            r["errors"].append("Missing item id")
+            results.append(r)
+            continue
+        if not (adds or rems):
+            logger.debug("No tag changes provided for item %s", iid)
+            results.append(r)
+            continue
+
+        try:
+            final_tags = jf_update_tags(base, api_key, iid, adds, rems)
+            r["added"] = adds
+            r["removed"] = rems
+            r["tags"] = final_tags
+        except Exception as exc:  # pragma: no cover - network failure path
+            logger.exception("Failed to update tags for item %s", iid)
+            r["errors"].append(str(exc))
         results.append(r)
     logger.info("/api/apply finished processing %d changes", len(results))
     return jsonify({"updated": results})

@@ -17,6 +17,7 @@ if "dotenv" not in sys.modules:
     setattr(mock_dotenv, "load_dotenv", _load_dotenv)  # type: ignore[attr-defined]
     sys.modules["dotenv"] = mock_dotenv
 
+import app as app_module  # noqa: E402
 from app import COLLECTION_ITEM_TYPES, app, item_tags  # noqa: E402
 
 
@@ -396,80 +397,143 @@ class ApiConfigFallbackTest(unittest.TestCase):
         self.assertEqual(captured["api_key"], "env-key")
 
 
-class ApiApplyUserScopedTest(unittest.TestCase):
+class JfUpdateTagsHelperTest(unittest.TestCase):
+    def test_posts_merged_tags_to_item_endpoint(self):
+        captured = {}
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            self.assertEqual(url, "http://example.com/Items/item1")
+            return {
+                "Id": "item1",
+                "Name": "Example",
+                "TagItems": [{"Name": "Sci-Fi"}],
+                "Tags": ["Drama"],
+                "ProviderIds": {"Imdb": "tt123"},
+            }
+
+        def fake_jf_post(url, api_key, params=None, json=None, timeout=30):
+            captured["url"] = url
+            captured["json"] = json
+            return {}
+
+        with patch("app.jf_get", side_effect=fake_jf_get):
+            with patch("app.jf_post", side_effect=fake_jf_post):
+                final_tags = app_module.jf_update_tags(
+                    "http://example.com", "dummy", "item1", ["Comedy"], ["Drama"]
+                )
+
+        self.assertEqual(final_tags, ["Comedy", "Sci-Fi"])
+        self.assertEqual(captured["url"], "http://example.com/Items/item1")
+        self.assertEqual(
+            captured["json"], {"Id": "item1", "Tags": ["Comedy", "Sci-Fi"]}
+        )
+
+    def test_retries_with_metadata_when_minimal_payload_rejected(self):
+        posts = []
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            return {
+                "Id": "item1",
+                "Name": "Example",
+                "TagItems": [],
+                "Tags": ["Drama"],
+                "ProviderIds": {"Imdb": "tt123"},
+            }
+
+        def fake_jf_post(url, api_key, params=None, json=None, timeout=30):
+            posts.append(json)
+            if len(posts) == 1:
+                raise app_module.requests.HTTPError("bad request")
+            return {}
+
+        with patch("app.jf_get", side_effect=fake_jf_get):
+            with patch("app.jf_post", side_effect=fake_jf_post):
+                tags = app_module.jf_update_tags(
+                    "http://example.com", "dummy", "item1", ["Comedy"], ["Drama"]
+                )
+
+        self.assertEqual(tags, ["Comedy"])
+        self.assertEqual(len(posts), 2)
+        self.assertEqual(
+            posts[1],
+            {
+                "Id": "item1",
+                "Tags": ["Comedy"],
+                "Name": "Example",
+                "ProviderIds": {"Imdb": "tt123"},
+            },
+        )
+
+
+class ApiApplyUpdateTest(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
 
-    def test_user_scoped_endpoint_invoked_when_user_id_provided(self):
-        calls = []
-
-        def fake_jf_post(url, api_key, params=None, timeout=30):
-            calls.append((url, params))
-            return {}
-
-        payload = {
-            "base": "http://example.com",
-            "apiKey": "dummy",
-            "userId": "user123",
-            "changes": [
-                {"id": "item1", "add": ["NewTag"], "remove": []},
-            ],
-        }
-
-        with patch("app.jf_post", side_effect=fake_jf_post):
-            response = self.client.post("/api/apply", json=payload)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            calls,
-            [
-                (
-                    "http://example.com/Users/user123/Items/item1/Tags",
-                    {"AddTags": "NewTag"},
-                )
-            ],
+    def test_requires_user_id(self):
+        response = self.client.post(
+            "/api/apply",
+            json={"base": "http://example.com", "apiKey": "dummy", "changes": []},
         )
 
-    def test_falls_back_to_global_endpoint_when_user_scope_fails(self):
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.is_json)
+        self.assertEqual(response.get_json(), {"error": "userId is required"})
+
+    def test_invokes_helper_for_each_change(self):
         calls = []
 
-        class Boom(Exception):
-            pass
-
-        def fake_jf_post(url, api_key, params=None, timeout=30):
-            calls.append((url, params))
-            if len(calls) == 1:
-                raise Boom("user endpoint down")
-            return {}
+        def fake_update(base, api_key, item_id, add, remove):
+            calls.append((base, api_key, item_id, list(add), list(remove)))
+            return ["Merged"]
 
         payload = {
             "base": "http://example.com",
             "apiKey": "dummy",
             "userId": "user123",
             "changes": [
-                {"id": "item42", "add": ["TagA"], "remove": []},
+                {"id": "item1", "add": ["TagA"], "remove": []},
+                {"id": "item2", "add": [], "remove": ["Old"]},
             ],
         }
 
-        with patch("app.jf_post", side_effect=fake_jf_post):
+        with patch("app.jf_update_tags", side_effect=fake_update):
             response = self.client.post("/api/apply", json=payload)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             calls,
             [
-                (
-                    "http://example.com/Users/user123/Items/item42/Tags",
-                    {"AddTags": "TagA"},
-                ),
-                ("http://example.com/Items/item42/Tags", {"AddTags": "TagA"}),
+                ("http://example.com", "dummy", "item1", ["TagA"], []),
+                ("http://example.com", "dummy", "item2", [], ["Old"]),
             ],
         )
         data = response.get_json()
-        self.assertTrue(response.is_json)
-        updated = data.get("updated", [])[0]
-        self.assertEqual(updated.get("added"), ["TagA"])
-        self.assertEqual(updated.get("errors"), [])
+        self.assertEqual(len(data.get("updated", [])), 2)
+        self.assertEqual(data["updated"][0]["tags"], ["Merged"])
+
+    def test_captures_errors_from_helper(self):
+        def fake_update(base, api_key, item_id, add, remove):
+            raise RuntimeError("boom")
+
+        payload = {
+            "base": "http://example.com",
+            "apiKey": "dummy",
+            "userId": "user123",
+            "changes": [
+                {"id": "item1", "add": ["TagA"], "remove": []},
+            ],
+        }
+
+        with patch("app.jf_update_tags", side_effect=fake_update):
+            response = self.client.post("/api/apply", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data.get("updated", [])), 1)
+        entry = data["updated"][0]
+        self.assertEqual(entry.get("added"), [])
+        self.assertEqual(entry.get("removed"), [])
+        self.assertEqual(entry.get("errors"), ["boom"])
 
 
 if __name__ == "__main__":
