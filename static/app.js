@@ -36,10 +36,17 @@ document.getElementById("btnTags").addEventListener("click", async ()=>{
   const body = {
     base: val("base"),
     apiKey: val("apiKey"),
-    libraryId: document.getElementById("libraryId").value
+    userId: document.getElementById("userId").value,
+    libraryId: document.getElementById("libraryId").value,
+    types: splitTags(val("types"))
   };
-  const data = await api("/api/tags", body);
-  setHtml("tagList", data.tags.map(t => `<span class="tag">${t}</span>`).join(" "));
+  setHtml("tagList", "Loading tags...");
+  try {
+    const data = await api("/api/tags", body);
+    setHtml("tagList", data.tags.map(t => `<span class="tag">${t}</span>`).join(" "));
+  } catch (e) {
+    setHtml("tagList", `Error loading tags: ${e.message}`);
+  }
 });
 
 async function search(pageStart=0){

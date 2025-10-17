@@ -54,7 +54,8 @@ def page_items(
         "StartIndex": start_index,
         "Limit": limit,
     }
-    return jf_get(f"{base}/Users/{user_id}/Items", api_key, params)
+    endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
+    return jf_get(endpoint, api_key, params)
 
 
 @app.route("/")
