@@ -1,4 +1,5 @@
 import os
+import logging
 from flask import Flask, render_template, request, jsonify, send_file
 import requests  # type: ignore[import-untyped]
 import csv
@@ -10,11 +11,24 @@ load_dotenv()
 app = Flask(__name__)
 
 
+def _configure_logging() -> logging.Logger:
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    return logging.getLogger(__name__)
+
+
+logger = _configure_logging()
+
+
 def jf_headers(api_key: str):
     return {"X-Emby-Token": api_key}
 
 
 def jf_get(url: str, api_key: str, params=None, timeout=30):
+    logger.debug("GET %s params=%s", url, params)
     r = requests.get(
         url, headers=jf_headers(api_key), params=params or {}, timeout=timeout
     )
@@ -23,6 +37,7 @@ def jf_get(url: str, api_key: str, params=None, timeout=30):
 
 
 def jf_post(url: str, api_key: str, params=None, timeout=30):
+    logger.debug("POST %s params=%s", url, params)
     r = requests.post(
         url, headers=jf_headers(api_key), params=params or {}, timeout=timeout
     )
@@ -80,6 +95,11 @@ def page_items(
 def index():
     base_url = os.getenv("JELLYFIN_BASE_URL", "")
     api_key = os.getenv("JELLYFIN_API_KEY", "")
+    logger.info(
+        "GET / - rendering index (base_url_configured=%s, api_key_configured=%s)",
+        bool(base_url),
+        bool(api_key),
+    )
     return render_template("index.html", base_url=base_url, api_key=api_key)
 
 
@@ -88,7 +108,9 @@ def api_users():
     data = request.get_json(force=True)
     base = data["base"].rstrip("/")
     api_key = data["apiKey"]
+    logger.info("POST /api/users base=%s", base)
     users = jf_get(f"{base}/Users", api_key)
+    logger.info("/api/users fetched %d users", len(users))
     return jsonify(users)
 
 
@@ -97,7 +119,9 @@ def api_libraries():
     data = request.get_json(force=True)
     base = data["base"].rstrip("/")
     api_key = data["apiKey"]
+    logger.info("POST /api/libraries base=%s", base)
     libs = jf_get(f"{base}/Library/VirtualFolders", api_key)
+    logger.info("/api/libraries fetched %d libraries", len(libs))
     return jsonify(libs)
 
 
@@ -109,6 +133,13 @@ def api_tags():
     lib_id = data["libraryId"]
     user_id = data.get("userId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
+    logger.info(
+        "POST /api/tags base=%s library=%s user=%s include_types=%s",
+        base,
+        lib_id,
+        user_id,
+        include_types,
+    )
 
     # 1) Preferred: user-scoped tag endpoint (some Jellyfin builds require this)
     if user_id:
@@ -126,10 +157,14 @@ def api_tags():
                 [x.get("Name", "") for x in res.get("Items", []) if x.get("Name")],
                 key=str.lower,
             )
+            logger.info(
+                "/api/tags returning %d tags via users-items-tags endpoint", len(names)
+            )
             return jsonify({"tags": names, "source": "users-items-tags"})
         except Exception:
-            # fall through to aggregation
-            pass
+            logger.exception(
+                "User-scoped tags endpoint failed; falling back to global endpoint",
+            )
 
     # 2) Legacy/global endpoint (works on some servers)
     try:
@@ -142,14 +177,20 @@ def api_tags():
             [x.get("Name", "") for x in res.get("Items", []) if x.get("Name")],
             key=str.lower,
         )
+        logger.info("/api/tags returning %d tags via items-tags endpoint", len(names))
         return jsonify({"tags": names, "source": "items-tags"})
     except Exception:
+        logger.exception(
+            "Items-tags endpoint failed; falling back to aggregated pagination"
+        )
         # 3) Robust fallback: aggregate by paging items and collecting TagItems
         try:
             fields = ["TagItems", "Type"]
             start = 0
             limit = 500
             tags = set()
+            total_processed = 0
+            logger.info("Starting aggregated tag collection")
             while True:
                 payload = page_items(
                     base, api_key, user_id, lib_id, include_types, fields, start, limit
@@ -157,6 +198,7 @@ def api_tags():
                 items = payload.get("Items", [])
                 if not items:
                     break
+                total_processed += len(items)
                 for it in items:
                     for t in it.get("TagItems") or []:
                         n = t.get("Name")
@@ -165,10 +207,16 @@ def api_tags():
                 start += len(items)
                 if start >= payload.get("TotalRecordCount", start):
                     break
+            logger.info(
+                "Aggregated %d items to collect %d unique tags",
+                total_processed,
+                len(tags),
+            )
             return jsonify(
                 {"tags": sorted(tags, key=str.lower), "source": "aggregated"}
             )
         except Exception as e2:
+            logger.exception("Aggregated tag fallback failed")
             return jsonify({"error": f"Failed to list tags: {e2}"}), 400
 
 
@@ -184,6 +232,16 @@ def api_items():
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
     start = int(data.get("startIndex", 0))
     limit = int(data.get("limit", 200))
+    logger.info(
+        "POST /api/items base=%s library=%s user=%s include=%s exclude=%s start=%d limit=%d",
+        base,
+        lib_id,
+        user_id,
+        include_tags,
+        exclude_tags,
+        start,
+        limit,
+    )
 
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     payload = page_items(
@@ -212,6 +270,11 @@ def api_items():
         if good(it)
     ]
 
+    logger.info(
+        "/api/items returning %d filtered items out of %d total",
+        len(filtered),
+        total,
+    )
     return jsonify(
         {"TotalRecordCount": total, "ReturnedCount": len(filtered), "Items": filtered}
     )
@@ -225,11 +288,19 @@ def api_export():
     user_id = data["userId"]
     lib_id = data["libraryId"]
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
+    logger.info(
+        "POST /api/export base=%s library=%s user=%s include_types=%s",
+        base,
+        lib_id,
+        user_id,
+        include_types,
+    )
 
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     start = 0
     limit = 500
     rows = []
+    total_processed = 0
     while True:
         payload = page_items(
             base, api_key, user_id, lib_id, include_types, fields, start, limit
@@ -237,6 +308,7 @@ def api_export():
         items = payload.get("Items", [])
         if not items:
             break
+        total_processed += len(items)
         for it in items:
             rows.append(
                 {
@@ -250,6 +322,7 @@ def api_export():
         start += len(items)
         if start >= payload.get("TotalRecordCount", start):
             break
+    logger.info("/api/export processed %d items for CSV export", total_processed)
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["id", "type", "name", "path", "tags"])
@@ -277,11 +350,18 @@ def api_apply():
     base = data["base"].rstrip("/")
     api_key = data["apiKey"]
     changes = data.get("changes") or []
+    logger.info("POST /api/apply base=%s changes=%d", base, len(changes))
     results = []
     for ch in changes:
         iid = ch.get("id")
         adds = [t for t in (ch.get("add") or []) if t]
         rems = [t for t in (ch.get("remove") or []) if t]
+        logger.info(
+            "Applying tag changes for item %s add=%s remove=%s",
+            iid,
+            adds,
+            rems,
+        )
         r = {"id": iid, "added": [], "removed": [], "errors": []}
         if adds:
             try:
@@ -293,6 +373,7 @@ def api_apply():
                 r["added"] = adds
             except Exception as e:
                 r["errors"].append(f"AddTags: {e}")
+                logger.exception("Failed to add tags for item %s", iid)
         if rems:
             try:
                 jf_post(
@@ -303,7 +384,9 @@ def api_apply():
                 r["removed"] = rems
             except Exception as e:
                 r["errors"].append(f"RemoveTags: {e}")
+                logger.exception("Failed to remove tags for item %s", iid)
         results.append(r)
+    logger.info("/api/apply finished processing %d changes", len(results))
     return jsonify({"updated": results})
 
 

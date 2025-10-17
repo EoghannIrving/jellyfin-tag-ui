@@ -31,3 +31,15 @@ docker compose up --build -d
 2. Restart the Flask app (or `docker compose up --build -d`) so the environment variables are loaded.
 
 When the app starts, the values from `.env` will be pre-filled in the UI to save you from retyping them.
+
+### Logging
+
+Set the `LOG_LEVEL` environment variable to control verbosity (defaults to `INFO`).
+Valid values include standard Python logging levels such as `DEBUG`, `INFO`, `WARNING`, `ERROR`,
+and `CRITICAL`. For example:
+
+```env
+LOG_LEVEL=DEBUG
+```
+
+Reload the application after changing the value to apply the new log level.
