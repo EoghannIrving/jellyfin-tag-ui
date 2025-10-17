@@ -757,6 +757,69 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(data["ReturnedCount"], 0)
         self.assertEqual(data["Items"], [])
 
+    def test_api_items_handles_server_page_cap(self):
+        starts = []
+
+        def make_item(idx: int) -> Dict[str, Any]:
+            return {
+                "Id": f"match-{idx}",
+                "Type": "Movie",
+                "Name": f"Match {idx}",
+                "Path": f"/match-{idx}.mkv",
+                "Tags": ["Keep"],
+                "TagItems": [],
+            }
+
+        first_page = [make_item(idx) for idx in range(50)]
+        second_page = [make_item(idx) for idx in range(50, 100)]
+        third_page = [make_item(idx) for idx in range(100, 120)]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            starts.append((start, limit))
+            if start == 0:
+                return {"Items": first_page, "TotalRecordCount": 120}
+            if start == len(first_page):
+                return {"Items": second_page, "TotalRecordCount": 120}
+            if start == len(first_page) + len(second_page):
+                return {"Items": third_page, "TotalRecordCount": 120}
+            return {"Items": [], "TotalRecordCount": 120}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": "Keep",
+                    "limit": 100,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn((0, 100), starts)
+        self.assertIn((50, 50), starts)
+        self.assertIn((100, 50), starts)
+        self.assertEqual(data["TotalMatchCount"], 120)
+        self.assertEqual(data["ReturnedCount"], 100)
+        self.assertEqual(len(data["Items"]), 100)
+        self.assertEqual(data["Items"][0]["Id"], "match-0")
+
     def test_api_items_sorts_results_locally_by_name(self):
         captured_sort = []
 
@@ -1066,6 +1129,65 @@ class ApiExportFieldsTest(unittest.TestCase):
         self.assertIn((len(first_page), 500), page_calls)
         self.assertIn("tail-1", csv_output)
 
+    def test_api_export_handles_server_page_cap(self):
+        page_calls = []
+
+        def make_item(prefix: str, idx: int) -> Dict[str, Any]:
+            return {
+                "Id": f"{prefix}-{idx}",
+                "Type": "Movie",
+                "Name": f"{prefix.title()} {idx}",
+                "Path": f"/{prefix}-{idx}.mkv",
+                "Tags": [prefix.title()],
+                "TagItems": [{"Name": prefix.title()}],
+            }
+
+        first_page = [make_item("alpha", idx) for idx in range(200)]
+        second_page = [make_item("beta", idx) for idx in range(200, 400)]
+        third_page = [make_item("gamma", idx) for idx in range(400, 600)]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            page_calls.append((start, limit))
+            if start == 0:
+                return {"Items": first_page, "TotalRecordCount": 600}
+            if start == len(first_page):
+                return {"Items": second_page, "TotalRecordCount": 600}
+            if start == len(first_page) + len(second_page):
+                return {"Items": third_page, "TotalRecordCount": 600}
+            return {"Items": [], "TotalRecordCount": 600}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/export",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        csv_output = response.data.decode("utf-8")
+        self.assertIn((0, 500), page_calls)
+        self.assertIn((200, 200), page_calls)
+        self.assertIn((400, 200), page_calls)
+        self.assertIn((600, 200), page_calls)
+        self.assertIn("gamma-450", csv_output)
+
 
 class ApiItemsCollectionExclusionTest(unittest.TestCase):
     def setUp(self):
@@ -1299,6 +1421,66 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
         self.assertIn((0, 500), starts)
         self.assertIn((500, 500), starts)
         self.assertEqual(data.get("tags"), ["Alpha", "Beta"])
+
+    def test_aggregated_fallback_handles_server_page_cap(self):
+        starts = []
+
+        def make_item(tag: str, idx: int) -> Dict[str, Any]:
+            return {
+                "Id": f"{tag.lower()}-{idx}",
+                "TagItems": [{"Name": tag}],
+                "Tags": [],
+                "InheritedTags": [],
+            }
+
+        first_page = [make_item("Alpha", idx) for idx in range(200)]
+        second_page = [make_item("Beta", idx) for idx in range(200, 400)]
+        third_page = [make_item("Gamma", idx) for idx in range(400, 600)]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            starts.append((start, limit))
+            if start == 0:
+                return {"Items": first_page, "TotalRecordCount": 600}
+            if start == len(first_page):
+                return {"Items": second_page, "TotalRecordCount": 600}
+            if start == len(first_page) + len(second_page):
+                return {"Items": third_page, "TotalRecordCount": 600}
+            return {"Items": [], "TotalRecordCount": 600}
+
+        with patch("app.jf_get", side_effect=RuntimeError("boom")):
+            with patch("app.page_items", side_effect=fake_page_items):
+                response = self.client.post(
+                    "/api/tags",
+                    json={
+                        "base": "http://example.com",
+                        "apiKey": "dummy",
+                        "libraryId": "lib",
+                        "userId": "user",
+                        "types": ["Movie"],
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json)
+        data = response.get_json()
+        self.assertEqual(data.get("source"), "aggregated")
+        self.assertIn((0, 500), starts)
+        self.assertIn((200, 200), starts)
+        self.assertIn((400, 200), starts)
+        self.assertIn((600, 200), starts)
+        self.assertEqual(data.get("tags"), ["Alpha", "Beta", "Gamma"])
 
 
 class IndexConfigRenderTest(unittest.TestCase):
