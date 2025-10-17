@@ -779,15 +779,8 @@ def api_items():
         "ProductionYear",
     ]
     matched_items: List[Dict[str, Any]] = []
-    total_record_count: Optional[int] = None
     current_start = 0
     fetch_limit = limit if limit > 0 else 100
-
-    def _update_total(payload: Mapping[str, Any]) -> None:
-        nonlocal total_record_count
-        payload_total = payload.get("TotalRecordCount")
-        if payload_total is not None:
-            total_record_count = int(payload_total)
 
     def good(item):
         tags = set([t.lower() for t in item_tags(item)])
@@ -811,7 +804,6 @@ def api_items():
             sort_by=sort_by,
             sort_order=sort_order,
         )
-        _update_total(payload)
         raw_items = payload.get("Items", [])
         if not raw_items:
             break
@@ -826,7 +818,7 @@ def api_items():
                 matched_items.append(_serialize_item_for_response(it))
 
         current_start += len(raw_items)
-        if total_record_count is not None and current_start >= int(total_record_count):
+        if len(raw_items) < fetch_limit:
             break
 
     total_matches = len(matched_items)
@@ -898,6 +890,7 @@ def api_export():
     ]
     start = 0
     limit = 500
+    fetch_limit = limit
     collected_items: List[Dict[str, Any]] = []
     total_processed = 0
     while True:
@@ -925,7 +918,7 @@ def api_export():
         for it in items:
             collected_items.append(_serialize_item_for_response(it))
         start += len(raw_items)
-        if start >= payload.get("TotalRecordCount", start):
+        if len(raw_items) < fetch_limit:
             break
     logger.info("/api/export processed %d items for CSV export", total_processed)
 
