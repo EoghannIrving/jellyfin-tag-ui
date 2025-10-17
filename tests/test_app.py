@@ -4,6 +4,8 @@ import types
 import unittest
 from unittest.mock import patch
 
+import requests  # type: ignore[import-untyped]
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -21,34 +23,107 @@ import app as app_module  # noqa: E402
 from app import COLLECTION_ITEM_TYPES, app, item_tags  # noqa: E402
 
 
+class DummyResponse:
+    def __init__(self, status_code=200, json_data=None, headers=None, http_error=None):
+        self.status_code = status_code
+        self._json_data = json_data
+        self.headers = headers or {"content-type": "application/json"}
+        self.text = "" if json_data is None else "body"
+        self._http_error = http_error
+
+    def raise_for_status(self):
+        if self._http_error:
+            raise self._http_error
+        if self.status_code >= 400:
+            error = requests.HTTPError(f"{self.status_code} error")
+            error.response = self
+            raise error
+
+    def json(self):
+        return self._json_data if self._json_data is not None else {}
+
+
 class JfUpdateTagsEndpointTest(unittest.TestCase):
-    def test_posts_to_items_endpoint_even_with_user(self):
+    def test_puts_filtered_payload_and_preserves_supported_fields(self):
         base = "http://example.com"
         api_key = "token"
         item_id = "12345"
         user_id = "user"
+        item_payload = {
+            "Id": item_id,
+            "Name": "Example",
+            "SortName": "Example",
+            "Overview": "",
+            "Genres": ["Drama"],
+            "Tags": ["Legacy"],
+            "TagItems": [{"Name": "Existing"}],
+            "ImageTags": {"Primary": "abc"},
+            "People": [{"Name": "Actor"}],
+            "Studios": [{"Name": "Studio"}],
+            "ProviderIds": {"Imdb": "tt123"},
+        }
 
-        with patch(
-            "app.jf_get", return_value={"TagItems": [], "Tags": []}
-        ) as mock_get, patch("app.jf_post", return_value={}) as mock_post:
+        with patch("app.jf_get", return_value=item_payload) as mock_get, patch(
+            "app.requests.put", return_value=DummyResponse()
+        ) as mock_put, patch("app.jf_post") as mock_post:
+            mock_post.return_value = {}
             result = app_module.jf_update_tags(
                 base,
                 api_key,
                 item_id,
-                add=[],
-                remove=[],
+                add=["New"],
+                remove=["Legacy"],
                 user_id=user_id,
             )
 
-        self.assertEqual(result, [])
+        self.assertEqual(result, ["Existing", "New"])
         mock_get.assert_called_once_with(
             f"{base}/Users/{user_id}/Items/{item_id}", api_key
         )
+        mock_put.assert_called_once()
+        put_kwargs = mock_put.call_args.kwargs
+        self.assertEqual(put_kwargs["json"]["Id"], item_id)
+        self.assertEqual(put_kwargs["json"]["Tags"], ["Existing", "New"])
+        self.assertEqual(put_kwargs["json"]["People"], item_payload["People"])
+        self.assertEqual(put_kwargs["json"]["Studios"], item_payload["Studios"])
+        self.assertNotIn("TagItems", put_kwargs["json"])
+        self.assertNotIn("ImageTags", put_kwargs["json"])
+        self.assertNotIn("Overview", put_kwargs["json"])
+        mock_post.assert_not_called()
+
+    def test_put_falls_back_to_post_when_unsupported(self):
+        base = "http://example.com"
+        api_key = "token"
+        item_id = "12345"
+        error_response = DummyResponse(status_code=405)
+        unsupported_error = requests.HTTPError("Method Not Allowed")
+        unsupported_error.response = error_response
+        error_response._http_error = unsupported_error
+
+        with patch(
+            "app.jf_get", return_value={"Id": item_id, "Tags": [], "TagItems": []}
+        ) as mock_get, patch(
+            "app.requests.put", return_value=error_response
+        ) as mock_put, patch(
+            "app.jf_post", return_value={}
+        ) as mock_post:
+            result = app_module.jf_update_tags(
+                base,
+                api_key,
+                item_id,
+                add=["New"],
+                remove=[],
+            )
+
+        self.assertEqual(result, ["New"])
+        mock_get.assert_called_once_with(f"{base}/Items/{item_id}", api_key)
+        mock_put.assert_called_once()
         mock_post.assert_called_once()
-        post_args, post_kwargs = mock_post.call_args
-        self.assertEqual(post_args[0], f"{base}/Items/{item_id}")
-        self.assertEqual(post_args[1], api_key)
-        self.assertEqual(post_kwargs.get("json"), {"Id": item_id, "Tags": []})
+        put_payload = mock_put.call_args.kwargs["json"]
+        post_payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(put_payload, post_payload)
+        self.assertEqual(post_payload["Id"], item_id)
+        self.assertEqual(post_payload["Tags"], ["New"])
 
 
 class ItemTagsTest(unittest.TestCase):
@@ -474,13 +549,13 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
                 "ProviderIds": {"Imdb": "tt123"},
             }
 
-        def fake_jf_post(url, api_key, params=None, json=None, timeout=30):
+        def fake_put(url, api_key, json=None, timeout=30):
             captured["url"] = url
             captured["json"] = json
             return {}
 
         with patch("app.jf_get", side_effect=fake_jf_get):
-            with patch("app.jf_post", side_effect=fake_jf_post):
+            with patch("app.jf_put_with_fallback", side_effect=fake_put):
                 final_tags = app_module.jf_update_tags(
                     "http://example.com", "dummy", "item1", ["Comedy"], ["Drama"]
                 )
@@ -488,7 +563,13 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
         self.assertEqual(final_tags, ["Comedy", "Sci-Fi"])
         self.assertEqual(captured["url"], "http://example.com/Items/item1")
         self.assertEqual(
-            captured["json"], {"Id": "item1", "Tags": ["Comedy", "Sci-Fi"]}
+            captured["json"],
+            {
+                "Id": "item1",
+                "Tags": ["Comedy", "Sci-Fi"],
+                "Name": "Example",
+                "ProviderIds": {"Imdb": "tt123"},
+            },
         )
 
     def test_fetches_user_scoped_endpoint_when_user_id_provided(self):
@@ -504,12 +585,13 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
                 "ProviderIds": {},
             }
 
-        def fake_jf_post(url, api_key, params=None, json=None, timeout=30):
-            captured["post_url"] = url
+        def fake_put(url, api_key, json=None, timeout=30):
+            captured["put_url"] = url
+            captured["payload"] = json
             return {}
 
         with patch("app.jf_get", side_effect=fake_jf_get):
-            with patch("app.jf_post", side_effect=fake_jf_post):
+            with patch("app.jf_put_with_fallback", side_effect=fake_put):
                 app_module.jf_update_tags(
                     "http://example.com",
                     "dummy",
@@ -520,12 +602,13 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
                 )
 
         expected_fetch = "http://example.com/Users/user123/Items/item1"
-        expected_post = "http://example.com/Items/item1"
+        expected_put = "http://example.com/Items/item1"
         self.assertEqual(captured["get_url"], expected_fetch)
-        self.assertEqual(captured["post_url"], expected_post)
+        self.assertEqual(captured["put_url"], expected_put)
+        self.assertEqual(captured["payload"]["Tags"], ["Comedy"])
 
-    def test_retries_with_metadata_when_minimal_payload_rejected(self):
-        posts = []
+    def test_includes_provider_ids_when_present(self):
+        captured_payload = {}
 
         def fake_jf_get(url, api_key, params=None, timeout=30):
             return {
@@ -536,22 +619,19 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
                 "ProviderIds": {"Imdb": "tt123"},
             }
 
-        def fake_jf_post(url, api_key, params=None, json=None, timeout=30):
-            posts.append(json)
-            if len(posts) == 1:
-                raise app_module.requests.HTTPError("bad request")
+        def fake_put(url, api_key, json=None, timeout=30):
+            captured_payload.update(json or {})
             return {}
 
         with patch("app.jf_get", side_effect=fake_jf_get):
-            with patch("app.jf_post", side_effect=fake_jf_post):
+            with patch("app.jf_put_with_fallback", side_effect=fake_put):
                 tags = app_module.jf_update_tags(
                     "http://example.com", "dummy", "item1", ["Comedy"], ["Drama"]
                 )
 
         self.assertEqual(tags, ["Comedy"])
-        self.assertEqual(len(posts), 2)
         self.assertEqual(
-            posts[1],
+            captured_payload,
             {
                 "Id": "item1",
                 "Tags": ["Comedy"],
