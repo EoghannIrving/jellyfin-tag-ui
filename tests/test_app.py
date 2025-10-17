@@ -102,6 +102,39 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Tags", captured["fields"])
 
+    def test_api_items_clamps_limit_to_100(self):
+        captured = {}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+        ):
+            captured["limit"] = limit
+            return {"Items": [], "TotalRecordCount": 0}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "limit": 250,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["limit"], 100)
+
 
 class ApiExportFieldsTest(unittest.TestCase):
     def setUp(self):
