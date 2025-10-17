@@ -109,6 +109,7 @@ const tagStates = new Map();
 let allTags = [];
 const tagSearchInput = document.getElementById("tagSearch");
 const tagActionSummaryEl = document.getElementById("tagActionSummary");
+const clearTagSelectionsButton = document.getElementById("btnClearTagSelections");
 const selectedItemsListEl = document.getElementById("selectedItemsList");
 const selectedItemsPanelEl = document.getElementById("selectedItemsPanel");
 
@@ -727,6 +728,15 @@ document.getElementById("tagList").addEventListener("click", (event) => {
   setTagInputs(addTags, removeTags);
   updateTagActionSummary();
 });
+
+if(clearTagSelectionsButton){
+  clearTagSelectionsButton.addEventListener("click", () => {
+    tagStates.clear();
+    setTagInputs([], []);
+    renderTagButtons(filterTagsByQuery(allTags, currentTagSearchQuery()));
+    updateTagActionSummary();
+  });
+}
 
 if(selectedItemsPanelEl){
   selectedItemsPanelEl.addEventListener("click", (event) => {
