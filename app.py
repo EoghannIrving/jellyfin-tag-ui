@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from flask import Flask, render_template, request, jsonify, send_file
 from flask.typing import ResponseReturnValue
@@ -442,22 +442,15 @@ def api_items():
     lib_id = data["libraryId"]
 
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
-    payload = page_items(
-        base,
-        api_key,
-        user_id,
-        lib_id,
-        include_types,
-        fields,
-        start,
-        limit,
-        exclude_types=excluded_types,
-    )
-    items = payload.get("Items", [])
-    if excluded_types:
-        excluded_set = set(excluded_types)
-        items = [it for it in items if it.get("Type") not in excluded_set]
-    total = payload.get("TotalRecordCount", len(items))
+    filtered: List[Dict[str, Any]] = []
+    total_record_count: Optional[int] = None
+    current_start = start
+
+    def _update_total(payload: Mapping[str, Any]) -> None:
+        nonlocal total_record_count
+        payload_total = payload.get("TotalRecordCount")
+        if payload_total is not None:
+            total_record_count = int(payload_total)
 
     def good(item):
         tags = set([t.lower() for t in item_tags(item)])
@@ -467,26 +460,60 @@ def api_items():
             return False
         return True
 
-    filtered = [
-        {
-            "Id": it.get("Id", ""),
-            "Type": it.get("Type", ""),
-            "Name": it.get("Name", ""),
-            "Path": it.get("Path", ""),
-            "Tags": item_tags(it),
-        }
-        for it in items
-        if good(it)
-    ]
+    while True:
+        payload = page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            current_start,
+            limit,
+            exclude_types=excluded_types,
+        )
+        _update_total(payload)
+        raw_items = payload.get("Items", [])
+        if not raw_items:
+            break
+
+        items = raw_items
+        if excluded_types:
+            excluded_set = set(excluded_types)
+            items = [it for it in raw_items if it.get("Type") not in excluded_set]
+
+        for it in items:
+            if good(it):
+                filtered.append(
+                    {
+                        "Id": it.get("Id", ""),
+                        "Type": it.get("Type", ""),
+                        "Name": it.get("Name", ""),
+                        "Path": it.get("Path", ""),
+                        "Tags": item_tags(it),
+                    }
+                )
+
+        current_start += len(raw_items)
+        if total_record_count is not None and current_start >= int(total_record_count):
+            break
+
+    total = total_record_count if total_record_count is not None else len(filtered)
+    total_matches = len(filtered)
 
     logger.info(
         "/api/items returning %d filtered items out of %d total (excluded_types=%s)",
-        len(filtered),
+        total_matches,
         total,
         list(excluded_types),
     )
     return jsonify(
-        {"TotalRecordCount": total, "ReturnedCount": len(filtered), "Items": filtered}
+        {
+            "TotalRecordCount": total,
+            "TotalMatchCount": total_matches,
+            "ReturnedCount": total_matches,
+            "Items": filtered,
+        }
     )
 
 
