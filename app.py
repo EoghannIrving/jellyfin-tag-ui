@@ -281,23 +281,26 @@ def normalize_tags(tag_string):
 
 
 def item_tags(item):
-    names = []
+    names: List[str] = []
     seen = set()
 
+    def _add(name: Optional[str]) -> None:
+        if not isinstance(name, str) or not name:
+            return
+        key = name.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        names.append(name)
+
     for tag in item.get("TagItems") or []:
-        name = (tag or {}).get("Name")
-        if name:
-            key = name.lower()
-            if key not in seen:
-                seen.add(key)
-                names.append(name)
+        _add((tag or {}).get("Name"))
 
     for name in item.get("Tags") or []:
-        if isinstance(name, str) and name:
-            key = name.lower()
-            if key not in seen:
-                seen.add(key)
-                names.append(name)
+        _add(name)
+
+    for name in item.get("InheritedTags") or []:
+        _add(name)
 
     return names
 
@@ -576,7 +579,7 @@ def api_tags():
         )
         # 3) Robust fallback: aggregate by paging items and collecting TagItems
         try:
-            fields = ["TagItems", "Tags", "Type"]
+            fields = ["TagItems", "Tags", "InheritedTags", "Type"]
             start = 0
             limit = 500
             tag_counts: Counter[str] = Counter()
@@ -653,6 +656,7 @@ def api_items():
 
     fields = [
         "TagItems",
+        "InheritedTags",
         "Name",
         "Path",
         "ProviderIds",
@@ -770,6 +774,7 @@ def api_export():
 
     fields = [
         "TagItems",
+        "InheritedTags",
         "Name",
         "Path",
         "ProviderIds",
