@@ -21,6 +21,36 @@ import app as app_module  # noqa: E402
 from app import COLLECTION_ITEM_TYPES, app, item_tags  # noqa: E402
 
 
+class JfUpdateTagsEndpointTest(unittest.TestCase):
+    def test_posts_to_items_endpoint_even_with_user(self):
+        base = "http://example.com"
+        api_key = "token"
+        item_id = "12345"
+        user_id = "user"
+
+        with patch(
+            "app.jf_get", return_value={"TagItems": [], "Tags": []}
+        ) as mock_get, patch("app.jf_post", return_value={}) as mock_post:
+            result = app_module.jf_update_tags(
+                base,
+                api_key,
+                item_id,
+                add=[],
+                remove=[],
+                user_id=user_id,
+            )
+
+        self.assertEqual(result, [])
+        mock_get.assert_called_once_with(
+            f"{base}/Users/{user_id}/Items/{item_id}", api_key
+        )
+        mock_post.assert_called_once()
+        post_args, post_kwargs = mock_post.call_args
+        self.assertEqual(post_args[0], f"{base}/Items/{item_id}")
+        self.assertEqual(post_args[1], api_key)
+        self.assertEqual(post_kwargs.get("json"), {"Id": item_id, "Tags": []})
+
+
 class ItemTagsTest(unittest.TestCase):
     def test_merges_tagitems_and_tags(self):
         item = {
@@ -456,9 +486,10 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
                     user_id="user123",
                 )
 
-        expected = "http://example.com/Users/user123/Items/item1"
-        self.assertEqual(captured["get_url"], expected)
-        self.assertEqual(captured["post_url"], expected)
+        expected_fetch = "http://example.com/Users/user123/Items/item1"
+        expected_post = "http://example.com/Items/item1"
+        self.assertEqual(captured["get_url"], expected_fetch)
+        self.assertEqual(captured["post_url"], expected_post)
 
     def test_retries_with_metadata_when_minimal_payload_rejected(self):
         posts = []
