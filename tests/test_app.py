@@ -106,6 +106,26 @@ class ApiExportFieldsTest(unittest.TestCase):
         self.assertIn("Drama;Sci-Fi", csv_output)
 
 
+class IndexConfigRenderTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_renders_environment_configuration(self):
+        base_url = "http://configured.example"
+        api_key = "configured-key"
+
+        with patch.dict(
+            os.environ,
+            {"JELLYFIN_BASE_URL": base_url, "JELLYFIN_API_KEY": api_key},
+        ):
+            response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.data.decode("utf-8")
+        self.assertIn(base_url, html)
+        self.assertIn(api_key, html)
+
+
 class ApiBaseValidationTest(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
