@@ -29,6 +29,36 @@ function escapeHtml(value) {
   })[ch] || ch);
 }
 
+const tagStates = new Map();
+let allTags = [];
+const tagSearchInput = document.getElementById("tagSearch");
+
+function currentTagSearchQuery(){
+  return tagSearchInput ? tagSearchInput.value : "";
+}
+
+function filterTagsByQuery(tags, query){
+  const q = (query || "").trim().toLowerCase();
+  if(!q){
+    return [...tags];
+  }
+  return tags.filter(tag => tag.toLowerCase().includes(q));
+}
+
+function renderTagButtons(tags){
+  if(!tags.length){
+    const hasQuery = currentTagSearchQuery().trim().length > 0;
+    setHtml("tagList", hasQuery ? '<div class="tag-empty">No tags match your search.</div>' : "");
+    return;
+  }
+  const html = tags.map(tag => {
+    const state = tagStates.get(tag) || "";
+    const stateClass = state === "add" ? " tag-add" : state === "remove" ? " tag-remove" : "";
+    return `<button type="button" class="tag${stateClass}" data-tag="${tag}" data-state="${state}"><span>${tag}</span></button>`;
+  }).join(" ");
+  setHtml("tagList", html);
+}
+
 document.getElementById("btnUsers").addEventListener("click", async ()=>{
   const data = await api("/api/users", {base: val("base"), apiKey: val("apiKey")});
   const opts = optionList(data, "Id", "Name");
@@ -53,16 +83,17 @@ document.getElementById("btnTags").addEventListener("click", async ()=>{
   setHtml("tagList", "Loading tags...");
   try {
     const data = await api("/api/tags", body);
-    setHtml(
-      "tagList",
-      data.tags
-        .map(
-          (t) =>
-            `<button type="button" class="tag" data-tag="${t}"><span>${t}</span></button>`
-        )
-        .join(" ")
-    );
+    allTags = data.tags || [];
+    const available = new Set(allTags);
+    Array.from(tagStates.keys()).forEach(tag => {
+      if(!available.has(tag)){
+        tagStates.delete(tag);
+      }
+    });
+    renderTagButtons(filterTagsByQuery(allTags, currentTagSearchQuery()));
   } catch (e) {
+    allTags = [];
+    tagStates.clear();
     setHtml("tagList", `Error loading tags: ${e.message}`);
   }
 });
@@ -130,8 +161,21 @@ document.getElementById("tagList").addEventListener("click", (event) => {
     target.classList.add("tag-remove");
   }
 
+  if (nextState) {
+    tagStates.set(tag, nextState);
+  } else {
+    tagStates.delete(tag);
+  }
+
   setTagInputs(addTags, removeTags);
 });
+
+if(tagSearchInput){
+  tagSearchInput.addEventListener("input", ()=>{
+    if(!allTags.length){ return; }
+    renderTagButtons(filterTagsByQuery(allTags, tagSearchInput.value));
+  });
+}
 
 async function search(pageStart=0){
   const types = splitTags(val("types"));
