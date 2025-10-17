@@ -4,7 +4,7 @@ import os
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests  # type: ignore[import-untyped]
 
@@ -63,12 +63,22 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
             "People": [{"Name": "Actor"}],
             "Studios": [{"Name": "Studio"}],
             "ProviderIds": {"Imdb": "tt123"},
+            "Path": "/media/example.mkv",
         }
 
         with patch("app.jf_get", return_value=item_payload) as mock_get, patch(
             "app.requests.put", return_value=DummyResponse()
-        ) as mock_put, patch("app.jf_post") as mock_post:
+        ) as mock_put, patch("app.jf_post") as mock_post, patch(
+            "app.render_nfo", return_value="<item />"
+        ) as mock_render, patch(
+            "app.Path"
+        ) as mock_path:
             mock_post.return_value = {}
+            mock_path_instance = mock_path.return_value
+            mock_nfo_path = MagicMock()
+            mock_parent = MagicMock()
+            mock_nfo_path.parent = mock_parent
+            mock_path_instance.with_suffix.return_value = mock_nfo_path
             result = app_module.jf_update_tags(
                 base,
                 api_key,
@@ -92,6 +102,13 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         self.assertNotIn("ImageTags", put_kwargs["json"])
         self.assertNotIn("Overview", put_kwargs["json"])
         mock_post.assert_not_called()
+        mock_render.assert_called_once()
+        metadata = mock_render.call_args.args[0]
+        self.assertEqual(metadata["Tags"], ["Existing", "New"])
+        mock_path.assert_called_once_with(item_payload["Path"])
+        mock_path_instance.with_suffix.assert_called_once_with(".nfo")
+        mock_parent.mkdir.assert_called_once_with(parents=True, exist_ok=True)
+        mock_nfo_path.write_text.assert_called_once_with("<item />", encoding="utf-8")
 
     def test_put_falls_back_to_post_when_unsupported(self):
         base = "http://example.com"
