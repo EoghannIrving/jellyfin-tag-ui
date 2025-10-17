@@ -27,3 +27,8 @@ button:hover{ filter:brightness(1.05); }
 table{ width:100%; border-collapse:collapse; margin-top:8px; }
 th, td{ border-bottom:1px solid var(--line); padding:8px; text-align:left; vertical-align:top; font-size:14px; }
 th{ color:var(--muted); }
+
+.pagination-controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+.pagination-controls button[disabled]{ opacity:0.5; cursor:not-allowed; }
+.pagination-controls .page-summary{ color:var(--muted); font-size:14px; }
+.results-empty, .results-loading{ color:var(--muted); margin-top:12px; }
