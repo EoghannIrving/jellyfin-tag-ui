@@ -35,6 +35,8 @@ button:hover{ filter:brightness(1.05); }
 table{ width:100%; border-collapse:collapse; margin-top:8px; }
 th, td{ border-bottom:1px solid var(--line); padding:8px; text-align:left; vertical-align:top; font-size:14px; }
 th{ color:var(--muted); }
+.results-main table tr.is-selected{ background:rgba(83,177,255,0.15); }
+.results-main table tr.is-selected td{ border-bottom-color:var(--accent); }
 
 .results-layout{ display:flex; gap:16px; align-items:flex-start; }
 .results-main{ flex:1 1 auto; min-width:0; }
