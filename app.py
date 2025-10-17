@@ -105,11 +105,12 @@ def jf_update_tags(
         raise ValueError("Item ID is required to update tags")
 
     if user_id:
-        item_endpoint = f"{base}/Users/{user_id}/Items/{item_id}"
+        fetch_endpoint = f"{base}/Users/{user_id}/Items/{item_id}"
     else:
-        item_endpoint = f"{base}/Items/{item_id}"
-    logger.debug("Fetching item %s for tag update", item_endpoint)
-    item = jf_get(item_endpoint, api_key)
+        fetch_endpoint = f"{base}/Items/{item_id}"
+    update_endpoint = f"{base}/Items/{item_id}"
+    logger.debug("Fetching item %s for tag update", fetch_endpoint)
+    item = jf_get(fetch_endpoint, api_key)
 
     existing_tags = item_tags(item)
     logger.debug("Existing tags for %s: %s", item_id, existing_tags)
@@ -131,12 +132,12 @@ def jf_update_tags(
     logger.debug(
         "Posting updated tags for %s to %s with payload %s",
         item_id,
-        item_endpoint,
+        update_endpoint,
         payload,
     )
 
     try:
-        jf_post(item_endpoint, api_key, json=payload)
+        jf_post(update_endpoint, api_key, json=payload)
         return final_tags
     except requests.HTTPError as first_error:
         logger.warning(
@@ -149,7 +150,7 @@ def jf_update_tags(
             "Name": item.get("Name", ""),
             "ProviderIds": item.get("ProviderIds") or {},
         }
-        jf_post(item_endpoint, api_key, json=extended_payload)
+        jf_post(update_endpoint, api_key, json=extended_payload)
         return final_tags
 
 
