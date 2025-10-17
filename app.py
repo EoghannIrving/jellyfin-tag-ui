@@ -653,8 +653,8 @@ def api_items():
         if total_record_count is not None and current_start >= int(total_record_count):
             break
 
-    total = total_record_count if total_record_count is not None else current_start
     total_matches = len(matched_items)
+    filtered_total = total_matches
     sorted_matches = sort_items_for_response(matched_items, sort_by, sort_order)
     if limit > 0:
         slice_end = start + limit
@@ -664,14 +664,14 @@ def api_items():
     returned_count = len(paged_items)
 
     logger.info(
-        "/api/items returning %d filtered items out of %d total (excluded_types=%s)",
+        "/api/items returning %d filtered items out of %d filtered total (excluded_types=%s)",
         returned_count,
-        total,
+        filtered_total,
         list(excluded_types),
     )
     return jsonify(
         {
-            "TotalRecordCount": total,
+            "TotalRecordCount": filtered_total,
             "TotalMatchCount": total_matches,
             "ReturnedCount": returned_count,
             "Items": paged_items,

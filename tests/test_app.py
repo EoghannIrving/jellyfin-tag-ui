@@ -453,6 +453,80 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(len(data["Items"]), 2)
         self.assertEqual([item["Id"] for item in data["Items"]], ["match-2", "match-3"])
 
+    def test_api_items_second_page_empty_after_filtering(self):
+        starts = []
+        records = [
+            {
+                "Id": "other-1",
+                "Type": "Movie",
+                "Name": "Other 1",
+                "Path": "/other-1.mkv",
+                "Tags": ["Other"],
+            },
+            {
+                "Id": "match-1",
+                "Type": "Movie",
+                "Name": "Match 1",
+                "Path": "/match-1.mkv",
+                "Tags": ["Match"],
+            },
+            {
+                "Id": "other-2",
+                "Type": "Movie",
+                "Name": "Other 2",
+                "Path": "/other-2.mkv",
+                "Tags": ["Other"],
+            },
+        ]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            starts.append((start, limit))
+            if start >= len(records):
+                return {"Items": [], "TotalRecordCount": len(records)}
+            slice_end = min(start + limit, len(records))
+            return {
+                "Items": records[start:slice_end],
+                "TotalRecordCount": len(records),
+            }
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": "Match",
+                    "startIndex": 1,
+                    "limit": 1,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertGreaterEqual(len(starts), 3)
+        self.assertIn((0, 1), starts)
+        self.assertIn((1, 1), starts)
+        self.assertIn((2, 1), starts)
+        self.assertEqual(data["TotalMatchCount"], 1)
+        self.assertEqual(data["TotalRecordCount"], 1)
+        self.assertEqual(data["ReturnedCount"], 0)
+        self.assertEqual(data["Items"], [])
+
     def test_api_items_sorts_results_locally_by_name(self):
         captured_sort = []
 
