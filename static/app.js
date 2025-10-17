@@ -17,7 +17,29 @@ function api(path, body){
 function optionList(arr, valueKey, textKey){
   return arr.map(o => `<option value="${o[valueKey]}">${o[textKey] || o[valueKey]}</option>`).join("");
 }
-function checkbox(id){ return `<input type="checkbox" class="sel" data-id="${id}">`; }
+const searchState = {
+  startIndex: 0,
+  limit: 500,
+  total: 0,
+  queryKey: "",
+  itemsById: new Map(),
+  selectedIds: new Set(),
+  selectedDetails: new Map(),
+};
+
+const paginationControls = {
+  prev: document.getElementById("btnPrevPage"),
+  next: document.getElementById("btnNextPage"),
+  summary: document.getElementById("pageSummary"),
+};
+
+function checkbox(item){
+  const checked = searchState.selectedIds.has(item.Id) ? " checked" : "";
+  const safeId = escapeHtml(item.Id);
+  const safeName = escapeHtml(item.Name || "");
+  const safeType = escapeHtml(item.Type || "");
+  return `<input type="checkbox" class="sel" data-id="${safeId}" data-name="${safeName}" data-type="${safeType}"${checked}>`;
+}
 
 function escapeHtml(value) {
   return String(value || "").replace(/[&<>"']/g, (ch) => ({
@@ -109,6 +131,176 @@ function renderTagButtons(tags){
   document.querySelectorAll("#tagList .tag").forEach((button) => {
     applyTagState(button, button.dataset.state || "");
   });
+}
+
+function buildSearchBody(startIndex){
+  const types = splitTags(val("types"));
+  return {
+    base: val("base"),
+    apiKey: val("apiKey"),
+    userId: document.getElementById("userId").value,
+    libraryId: document.getElementById("libraryId").value,
+    types,
+    includeTags: val("includeTags"),
+    excludeTags: val("excludeTags"),
+    excludeCollections: document.getElementById("excludeCollections").checked,
+    startIndex,
+    limit: searchState.limit,
+  };
+}
+
+function buildSearchQueryKey(body){
+  return JSON.stringify({
+    base: body.base,
+    userId: body.userId,
+    libraryId: body.libraryId,
+    types: body.types,
+    includeTags: body.includeTags,
+    excludeTags: body.excludeTags,
+    excludeCollections: body.excludeCollections,
+  });
+}
+
+function updateSelectionSummary(){
+  const selected = searchState.selectedIds.size;
+  const label = selected === 0
+    ? "No items selected"
+    : `${selected} item${selected === 1 ? "" : "s"} selected`;
+  setHtml("selectionSummary", label);
+}
+
+function updateSelectAllState(selAll, rowCheckboxes){
+  if(!selAll){ return; }
+  const total = rowCheckboxes.length;
+  const checkedCount = rowCheckboxes.filter(cb => cb.checked).length;
+  if(total === 0){
+    selAll.checked = false;
+    selAll.indeterminate = false;
+    selAll.disabled = true;
+    return;
+  }
+  selAll.disabled = false;
+  if(checkedCount === 0){
+    selAll.checked = false;
+    selAll.indeterminate = false;
+  } else if(checkedCount === total){
+    selAll.checked = true;
+    selAll.indeterminate = false;
+  } else {
+    selAll.checked = false;
+    selAll.indeterminate = true;
+  }
+}
+
+function applySelectionFromCheckbox(cb){
+  if(!cb){ return; }
+  const id = cb.dataset.id;
+  if(!id){ return; }
+  if(cb.checked){
+    searchState.selectedIds.add(id);
+    searchState.selectedDetails.set(id, {
+      id,
+      name: cb.dataset.name || "",
+      type: cb.dataset.type || "",
+    });
+  } else {
+    searchState.selectedIds.delete(id);
+    searchState.selectedDetails.delete(id);
+  }
+  updateSelectionSummary();
+}
+
+function renderResults(items){
+  if(!items.length){
+    setHtml("results", '<div class="results-empty">No items found.</div>');
+    const selAll = document.getElementById("selAll");
+    if(selAll){
+      updateSelectAllState(selAll, []);
+    }
+    updateSelectionSummary();
+    return;
+  }
+  const rows = items.map(it => {
+    const safeType = escapeHtml(it.Type || "");
+    const safeName = escapeHtml(it.Name || "");
+    const safePath = escapeHtml(it.Path || "");
+    const safeTags = escapeHtml((it.Tags || []).join("; "));
+    return `
+    <tr>
+      <td>${checkbox(it)}</td>
+      <td>${safeType}</td>
+      <td>${safeName}</td>
+      <td>${safePath}</td>
+      <td>${safeTags}</td>
+    </tr>
+  `;
+  }).join("");
+  const table = `
+    <table>
+      <thead><tr><th><input type="checkbox" id="selAll"></th><th>Type</th><th>Name</th><th>Path</th><th>Tags</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  setHtml("results", table);
+
+  const selAll = document.getElementById("selAll");
+  const rowCheckboxes = Array.from(document.querySelectorAll("input.sel"));
+
+  rowCheckboxes.forEach(cb => {
+    if(cb.checked){
+      const id = cb.dataset.id;
+      if(id){
+        searchState.selectedIds.add(id);
+        searchState.selectedDetails.set(id, {
+          id,
+          name: cb.dataset.name || "",
+          type: cb.dataset.type || "",
+        });
+      }
+    }
+    cb.addEventListener("change", () => {
+      applySelectionFromCheckbox(cb);
+      updateSelectAllState(selAll, rowCheckboxes);
+    });
+  });
+
+  if(selAll){
+    selAll.addEventListener("change", () => {
+      selAll.indeterminate = false;
+      rowCheckboxes.forEach(cb => {
+        cb.checked = selAll.checked;
+        applySelectionFromCheckbox(cb);
+      });
+      updateSelectAllState(selAll, rowCheckboxes);
+    });
+    updateSelectAllState(selAll, rowCheckboxes);
+  }
+
+  updateSelectionSummary();
+}
+
+function updatePaginationControls(returned, total){
+  const {prev, next, summary} = paginationControls;
+  if(prev){
+    const hasPrev = total > 0 && searchState.startIndex > 0;
+    prev.disabled = !hasPrev;
+  }
+  if(next){
+    const nextStart = searchState.startIndex + searchState.limit;
+    next.disabled = !(total > 0 && nextStart < total);
+  }
+  if(summary){
+    if(total === 0){
+      summary.textContent = searchState.queryKey ? "No items found" : "";
+    } else {
+      const start = Math.min(total, searchState.startIndex + 1);
+      let end = returned ? Math.min(total, searchState.startIndex + returned) : Math.min(total, searchState.startIndex + searchState.limit);
+      if(end < start){
+        end = start;
+      }
+      summary.textContent = `${start}-${end} of ${total}`;
+    }
+  }
 }
 
 document.getElementById("btnUsers").addEventListener("click", async ()=>{
@@ -223,69 +415,101 @@ if(tagSearchInput){
   });
 }
 
-async function search(pageStart=0){
-  const types = splitTags(val("types"));
-  const body = {
-    base: val("base"),
-    apiKey: val("apiKey"),
-    userId: document.getElementById("userId").value,
-    libraryId: document.getElementById("libraryId").value,
-    types: types,
-    includeTags: val("includeTags"),
-    excludeTags: val("excludeTags"),
-    excludeCollections: document.getElementById("excludeCollections").checked,
-    startIndex: pageStart,
-    limit: 500
-  };
-  const data = await api("/api/items", body);
-  const returned = data.Items.length;
-  const total = data.TotalRecordCount ?? returned;
-  setHtml("resultSummary", `Showing ${returned} of ${total} items`);
+async function search({startIndex, reset = false} = {}){
+  const previousStartIndex = searchState.startIndex;
+  const previousQueryKey = searchState.queryKey;
+  const previousTotal = searchState.total;
+  const targetStart = typeof startIndex === "number"
+    ? Math.max(0, startIndex)
+    : (reset ? 0 : searchState.startIndex);
+  const body = buildSearchBody(targetStart);
+  const queryKey = buildSearchQueryKey(body);
+  const isNewQuery = reset || queryKey !== searchState.queryKey;
 
-  const rows = data.Items.map(it => `
-    <tr>
-      <td>${checkbox(it.Id)}</td>
-      <td>${it.Type}</td>
-      <td>${it.Name}</td>
-      <td>${(it.Path||"")}</td>
-      <td>${(it.Tags||[]).join("; ")}</td>
-    </tr>
-  `).join("");
-  const table = `
-    <table>
-      <thead><tr><th><input type="checkbox" id="selAll"></th><th>Type</th><th>Name</th><th>Path</th><th>Tags</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
-  setHtml("results", table);
-
-  const updateSelectionSummary = ()=>{
-    const selected = document.querySelectorAll("input.sel:checked").length;
-    const label = selected === 0 ? "No items selected" : `${selected} item${selected === 1 ? "" : "s"} selected`;
-    setHtml("selectionSummary", label);
-  };
-
-  const selAll = document.getElementById("selAll");
-  const rowCheckboxes = Array.from(document.querySelectorAll("input.sel"));
-
-  selAll.addEventListener("change", ()=>{
-    rowCheckboxes.forEach(cb => cb.checked = selAll.checked);
+  if(isNewQuery){
+    searchState.selectedIds.clear();
+    searchState.selectedDetails.clear();
+    searchState.itemsById.clear();
+    searchState.total = 0;
     updateSelectionSummary();
-  });
+  }
 
-  rowCheckboxes.forEach(cb => cb.addEventListener("change", ()=>{
-    if(!cb.checked){
-      selAll.checked = false;
-    } else if(rowCheckboxes.every(c => c.checked)){
-      selAll.checked = true;
+  setHtml("resultSummary", "Loading results...");
+  setHtml("results", '<div class="results-loading">Loading...</div>');
+  if(paginationControls.prev){ paginationControls.prev.disabled = true; }
+  if(paginationControls.next){ paginationControls.next.disabled = true; }
+  if(paginationControls.summary){ paginationControls.summary.textContent = ""; }
+
+  try {
+    const data = await api("/api/items", body);
+    const items = data.Items || [];
+    const returned = items.length;
+    const total = data.TotalRecordCount ?? returned;
+
+    searchState.startIndex = targetStart;
+    searchState.total = total;
+    searchState.queryKey = queryKey;
+
+    items.forEach(item => {
+      searchState.itemsById.set(item.Id, item);
+      if(searchState.selectedIds.has(item.Id) && !searchState.selectedDetails.has(item.Id)){
+        searchState.selectedDetails.set(item.Id, {
+          id: item.Id,
+          name: item.Name || "",
+          type: item.Type || "",
+        });
+      }
+    });
+
+    renderResults(items);
+
+    if(total === 0){
+      setHtml("resultSummary", "No items found");
+    } else {
+      const startNumber = Math.min(total, searchState.startIndex + 1);
+      let endNumber = returned ? Math.min(total, searchState.startIndex + returned) : Math.min(total, searchState.startIndex + searchState.limit);
+      if(endNumber < startNumber){
+        endNumber = startNumber;
+      }
+      const summaryText = `Showing items ${startNumber}–${endNumber} of ${total}`;
+      setHtml("resultSummary", summaryText);
     }
-    updateSelectionSummary();
-  }));
 
-  updateSelectionSummary();
+    updatePaginationControls(returned, total);
+  } catch (e) {
+    searchState.startIndex = previousStartIndex;
+    searchState.queryKey = previousQueryKey;
+    searchState.total = previousTotal;
+    console.error(e);
+    setHtml("resultSummary", `Error loading items: ${escapeHtml(e.message)}`);
+    setHtml("results", '<div class="results-empty">Unable to load results.</div>');
+    updatePaginationControls(0, searchState.total);
+  }
 }
 
-document.getElementById("btnSearch").addEventListener("click", ()=>search(0));
+document.getElementById("btnSearch").addEventListener("click", ()=>search({startIndex: 0, reset: true}));
+
+if(paginationControls.prev){
+  paginationControls.prev.addEventListener("click", () => {
+    if(searchState.startIndex <= 0){
+      return;
+    }
+    const newStart = Math.max(0, searchState.startIndex - searchState.limit);
+    search({startIndex: newStart});
+  });
+}
+
+if(paginationControls.next){
+  paginationControls.next.addEventListener("click", () => {
+    const newStart = searchState.startIndex + searchState.limit;
+    if(searchState.total > 0 && newStart < searchState.total){
+      search({startIndex: newStart});
+    }
+  });
+}
+
+updateSelectionSummary();
+updatePaginationControls(0, 0);
 
 document.getElementById("btnExport").addEventListener("click", async ()=>{
   const body = {
@@ -309,15 +533,14 @@ document.getElementById("btnExport").addEventListener("click", async ()=>{
 document.getElementById("btnApply").addEventListener("click", async ()=>{
   const adds = splitTags(document.getElementById("applyAdd").value);
   const rems = splitTags(document.getElementById("applyRemove").value);
-  const selectedCheckboxes = Array.from(document.querySelectorAll("input.sel:checked"));
-  if(selectedCheckboxes.length === 0){ alert("No items selected"); return; }
+  const selectedIds = Array.from(searchState.selectedIds);
+  if(selectedIds.length === 0){ alert("No items selected"); return; }
 
-  const selectedDetails = selectedCheckboxes.map(cb => {
-    const row = cb.closest("tr");
-    const cells = row ? Array.from(row.querySelectorAll("td")) : [];
-    const type = cells[1] ? cells[1].textContent.trim() : "";
-    const name = cells[2] ? cells[2].textContent.trim() : "";
-    return { id: cb.dataset.id, name, type };
+  const selectedDetails = selectedIds.map(id => {
+    const stored = searchState.selectedDetails.get(id) || searchState.itemsById.get(id) || {};
+    const name = stored.name ?? stored.Name ?? "";
+    const type = stored.type ?? stored.Type ?? "";
+    return { id, name, type };
   });
   const detailLookup = new Map(selectedDetails.map(item => [item.id, item]));
 
@@ -365,7 +588,7 @@ document.getElementById("btnApply").addEventListener("click", async ()=>{
     }).join("");
     const detailsHtml = detailItems ? `<ul class="apply-results">${detailItems}</ul>` : "";
     setHtml("applyStatus", `<div>${escapeHtml(summaryText)}</div>${detailsHtml}`);
-    await search(0);
+    await search({startIndex: 0, reset: true});
   }catch(e){
     setHtml("applyStatus", "Error: " + escapeHtml(e.message));
   }finally{
