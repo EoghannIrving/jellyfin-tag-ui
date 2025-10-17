@@ -1,6 +1,9 @@
 import os
 import logging
+from typing import Any, Mapping, Optional, Tuple
+
 from flask import Flask, render_template, request, jsonify, send_file
+from flask.typing import ResponseReturnValue
 import requests  # type: ignore[import-untyped]
 import csv
 import io
@@ -21,6 +24,24 @@ def _configure_logging() -> logging.Logger:
 
 
 logger = _configure_logging()
+
+
+def _normalized_base(raw_base: Any) -> str:
+    return str(raw_base or "").strip().rstrip("/")
+
+
+def _validate_base(
+    data: Mapping[str, Any], endpoint: str
+) -> Tuple[Optional[str], Optional[ResponseReturnValue]]:
+    base = _normalized_base(data.get("base"))
+    if not base:
+        logger.warning(
+            "POST %s missing Jellyfin base URL (raw=%r)",
+            endpoint,
+            data.get("base"),
+        )
+        return None, (jsonify({"error": "Jellyfin base URL is required"}), 400)
+    return base, None
 
 
 def jf_headers(api_key: str):
@@ -106,9 +127,11 @@ def index():
 @app.route("/api/users", methods=["POST"])
 def api_users():
     data = request.get_json(force=True)
-    base = data["base"].rstrip("/")
+    base, error = _validate_base(data, "/api/users")
+    logger.info("POST /api/users base=%s", base or "")
+    if error is not None:
+        return error
     api_key = data["apiKey"]
-    logger.info("POST /api/users base=%s", base)
     users = jf_get(f"{base}/Users", api_key)
     logger.info("/api/users fetched %d users", len(users))
     return jsonify(users)
@@ -117,9 +140,11 @@ def api_users():
 @app.route("/api/libraries", methods=["POST"])
 def api_libraries():
     data = request.get_json(force=True)
-    base = data["base"].rstrip("/")
+    base, error = _validate_base(data, "/api/libraries")
+    logger.info("POST /api/libraries base=%s", base or "")
+    if error is not None:
+        return error
     api_key = data["apiKey"]
-    logger.info("POST /api/libraries base=%s", base)
     libs = jf_get(f"{base}/Library/VirtualFolders", api_key)
     logger.info("/api/libraries fetched %d libraries", len(libs))
     return jsonify(libs)
@@ -128,18 +153,21 @@ def api_libraries():
 @app.route("/api/tags", methods=["POST"])
 def api_tags():
     data = request.get_json(force=True)
-    base = data["base"].rstrip("/")
-    api_key = data["apiKey"]
-    lib_id = data["libraryId"]
+    base, error = _validate_base(data, "/api/tags")
+    lib_id = data.get("libraryId")
     user_id = data.get("userId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
     logger.info(
         "POST /api/tags base=%s library=%s user=%s include_types=%s",
-        base,
+        base or "",
         lib_id,
         user_id,
         include_types,
     )
+    if error is not None:
+        return error
+    api_key = data["apiKey"]
+    lib_id = data["libraryId"]
 
     # 1) Preferred: user-scoped tag endpoint (some Jellyfin builds require this)
     if user_id:
@@ -223,10 +251,9 @@ def api_tags():
 @app.route("/api/items", methods=["POST"])
 def api_items():
     data = request.get_json(force=True)
-    base = data["base"].rstrip("/")
-    api_key = data["apiKey"]
-    user_id = data["userId"]
-    lib_id = data["libraryId"]
+    base, error = _validate_base(data, "/api/items")
+    user_id = data.get("userId")
+    lib_id = data.get("libraryId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
@@ -234,7 +261,7 @@ def api_items():
     limit = int(data.get("limit", 200))
     logger.info(
         "POST /api/items base=%s library=%s user=%s include=%s exclude=%s start=%d limit=%d",
-        base,
+        base or "",
         lib_id,
         user_id,
         include_tags,
@@ -242,6 +269,11 @@ def api_items():
         start,
         limit,
     )
+    if error is not None:
+        return error
+    api_key = data["apiKey"]
+    user_id = data["userId"]
+    lib_id = data["libraryId"]
 
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     payload = page_items(
@@ -283,18 +315,22 @@ def api_items():
 @app.route("/api/export", methods=["POST"])
 def api_export():
     data = request.get_json(force=True)
-    base = data["base"].rstrip("/")
-    api_key = data["apiKey"]
-    user_id = data["userId"]
-    lib_id = data["libraryId"]
+    base, error = _validate_base(data, "/api/export")
+    user_id = data.get("userId")
+    lib_id = data.get("libraryId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
     logger.info(
         "POST /api/export base=%s library=%s user=%s include_types=%s",
-        base,
+        base or "",
         lib_id,
         user_id,
         include_types,
     )
+    if error is not None:
+        return error
+    api_key = data["apiKey"]
+    user_id = data["userId"]
+    lib_id = data["libraryId"]
 
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     start = 0
@@ -347,10 +383,12 @@ def api_apply():
     #   ]
     # }
     data = request.get_json(force=True)
-    base = data["base"].rstrip("/")
-    api_key = data["apiKey"]
+    base, error = _validate_base(data, "/api/apply")
     changes = data.get("changes") or []
-    logger.info("POST /api/apply base=%s changes=%d", base, len(changes))
+    logger.info("POST /api/apply base=%s changes=%d", base or "", len(changes))
+    if error is not None:
+        return error
+    api_key = data["apiKey"]
     results = []
     for ch in changes:
         iid = ch.get("id")

@@ -105,5 +105,44 @@ class ApiExportFieldsTest(unittest.TestCase):
         self.assertIn("Drama;Sci-Fi", csv_output)
 
 
+class ApiBaseValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_missing_base_returns_400(self):
+        endpoints = {
+            "/api/users": {"base": "   ", "apiKey": "dummy"},
+            "/api/libraries": {"base": "", "apiKey": "dummy"},
+            "/api/tags": {
+                "base": " ",
+                "apiKey": "dummy",
+                "libraryId": "lib",
+            },
+            "/api/items": {
+                "base": "\t",
+                "apiKey": "dummy",
+                "libraryId": "lib",
+                "userId": "user",
+            },
+            "/api/export": {
+                "base": "\n",
+                "apiKey": "dummy",
+                "libraryId": "lib",
+                "userId": "user",
+            },
+            "/api/apply": {"base": " ", "apiKey": "dummy", "changes": []},
+        }
+
+        for path, payload in endpoints.items():
+            with self.subTest(path=path):
+                response = self.client.post(path, json=payload)
+                self.assertEqual(response.status_code, 400)
+                self.assertTrue(response.is_json)
+                self.assertEqual(
+                    response.get_json(),
+                    {"error": "Jellyfin base URL is required"},
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
