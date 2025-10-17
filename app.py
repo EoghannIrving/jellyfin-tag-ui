@@ -232,7 +232,7 @@ def api_tags():
         )
         # 3) Robust fallback: aggregate by paging items and collecting TagItems
         try:
-            fields = ["TagItems", "Type"]
+            fields = ["TagItems", "Tags", "Type"]
             start = 0
             limit = 500
             tags = set()
@@ -247,10 +247,8 @@ def api_tags():
                     break
                 total_processed += len(items)
                 for it in items:
-                    for t in it.get("TagItems") or []:
-                        n = t.get("Name")
-                        if n:
-                            tags.add(n)
+                    for name in item_tags(it):
+                        tags.add(name)
                 start += len(items)
                 if start >= payload.get("TotalRecordCount", start):
                     break
