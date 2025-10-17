@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 import unittest
@@ -110,38 +111,69 @@ class ApiBaseValidationTest(unittest.TestCase):
         self.client = app.test_client()
 
     def test_missing_base_returns_400(self):
-        endpoints = {
-            "/api/users": {"base": "   ", "apiKey": "dummy"},
-            "/api/libraries": {"base": "", "apiKey": "dummy"},
-            "/api/tags": {
-                "base": " ",
-                "apiKey": "dummy",
-                "libraryId": "lib",
-            },
-            "/api/items": {
-                "base": "\t",
-                "apiKey": "dummy",
-                "libraryId": "lib",
-                "userId": "user",
-            },
-            "/api/export": {
-                "base": "\n",
-                "apiKey": "dummy",
-                "libraryId": "lib",
-                "userId": "user",
-            },
-            "/api/apply": {"base": " ", "apiKey": "dummy", "changes": []},
-        }
+        with patch.dict(
+            os.environ,
+            {"JELLYFIN_BASE_URL": "", "JELLYFIN_API_KEY": ""},
+        ):
+            endpoints = {
+                "/api/users": {"base": "   ", "apiKey": "dummy"},
+                "/api/libraries": {"base": "", "apiKey": "dummy"},
+                "/api/tags": {
+                    "base": " ",
+                    "apiKey": "dummy",
+                    "libraryId": "lib",
+                },
+                "/api/items": {
+                    "base": "\t",
+                    "apiKey": "dummy",
+                    "libraryId": "lib",
+                    "userId": "user",
+                },
+                "/api/export": {
+                    "base": "\n",
+                    "apiKey": "dummy",
+                    "libraryId": "lib",
+                    "userId": "user",
+                },
+                "/api/apply": {"base": " ", "apiKey": "dummy", "changes": []},
+            }
 
-        for path, payload in endpoints.items():
-            with self.subTest(path=path):
-                response = self.client.post(path, json=payload)
-                self.assertEqual(response.status_code, 400)
-                self.assertTrue(response.is_json)
-                self.assertEqual(
-                    response.get_json(),
-                    {"error": "Jellyfin base URL is required"},
-                )
+            for path, payload in endpoints.items():
+                with self.subTest(path=path):
+                    response = self.client.post(path, json=payload)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertTrue(response.is_json)
+                    self.assertEqual(
+                        response.get_json(),
+                        {"error": "Jellyfin base URL is required"},
+                    )
+
+
+class ApiConfigFallbackTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_uses_environment_defaults_when_payload_missing(self):
+        captured = {}
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            captured["url"] = url
+            captured["api_key"] = api_key
+            return []
+
+        with patch.dict(
+            os.environ,
+            {
+                "JELLYFIN_BASE_URL": "http://env.example",
+                "JELLYFIN_API_KEY": "env-key",
+            },
+        ):
+            with patch("app.jf_get", side_effect=fake_jf_get):
+                response = self.client.post("/api/users", json={})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["url"], "http://env.example/Users")
+        self.assertEqual(captured["api_key"], "env-key")
 
 
 if __name__ == "__main__":

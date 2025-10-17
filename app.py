@@ -30,18 +30,32 @@ def _normalized_base(raw_base: Any) -> str:
     return str(raw_base or "").strip().rstrip("/")
 
 
+def resolve_jellyfin_config(data: Mapping[str, Any]) -> Tuple[str, str]:
+    """Resolve the Jellyfin base URL and API key for a request."""
+
+    request_base = _normalized_base(data.get("base"))
+    env_base = _normalized_base(os.getenv("JELLYFIN_BASE_URL"))
+    base = request_base or env_base
+
+    request_api_key = str(data.get("apiKey") or "").strip()
+    env_api_key = str(os.getenv("JELLYFIN_API_KEY") or "").strip()
+    api_key = request_api_key or env_api_key
+
+    return base, api_key
+
+
 def _validate_base(
-    data: Mapping[str, Any], endpoint: str
+    base: Optional[str], endpoint: str, raw_base: Any = None
 ) -> Tuple[Optional[str], Optional[ResponseReturnValue]]:
-    base = _normalized_base(data.get("base"))
-    if not base:
+    normalized = _normalized_base(base)
+    if not normalized:
         logger.warning(
             "POST %s missing Jellyfin base URL (raw=%r)",
             endpoint,
-            data.get("base"),
+            raw_base,
         )
         return None, (jsonify({"error": "Jellyfin base URL is required"}), 400)
-    return base, None
+    return normalized, None
 
 
 def jf_headers(api_key: str):
@@ -127,11 +141,11 @@ def index():
 @app.route("/api/users", methods=["POST"])
 def api_users():
     data = request.get_json(force=True)
-    base, error = _validate_base(data, "/api/users")
+    base, api_key = resolve_jellyfin_config(data)
+    base, error = _validate_base(base, "/api/users", data.get("base"))
     logger.info("POST /api/users base=%s", base or "")
     if error is not None:
         return error
-    api_key = data["apiKey"]
     users = jf_get(f"{base}/Users", api_key)
     logger.info("/api/users fetched %d users", len(users))
     return jsonify(users)
@@ -140,11 +154,11 @@ def api_users():
 @app.route("/api/libraries", methods=["POST"])
 def api_libraries():
     data = request.get_json(force=True)
-    base, error = _validate_base(data, "/api/libraries")
+    base, api_key = resolve_jellyfin_config(data)
+    base, error = _validate_base(base, "/api/libraries", data.get("base"))
     logger.info("POST /api/libraries base=%s", base or "")
     if error is not None:
         return error
-    api_key = data["apiKey"]
     libs = jf_get(f"{base}/Library/VirtualFolders", api_key)
     logger.info("/api/libraries fetched %d libraries", len(libs))
     return jsonify(libs)
@@ -153,7 +167,8 @@ def api_libraries():
 @app.route("/api/tags", methods=["POST"])
 def api_tags():
     data = request.get_json(force=True)
-    base, error = _validate_base(data, "/api/tags")
+    base, api_key = resolve_jellyfin_config(data)
+    base, error = _validate_base(base, "/api/tags", data.get("base"))
     lib_id = data.get("libraryId")
     user_id = data.get("userId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
@@ -166,7 +181,6 @@ def api_tags():
     )
     if error is not None:
         return error
-    api_key = data["apiKey"]
     lib_id = data["libraryId"]
 
     # 1) Preferred: user-scoped tag endpoint (some Jellyfin builds require this)
@@ -251,7 +265,8 @@ def api_tags():
 @app.route("/api/items", methods=["POST"])
 def api_items():
     data = request.get_json(force=True)
-    base, error = _validate_base(data, "/api/items")
+    base, api_key = resolve_jellyfin_config(data)
+    base, error = _validate_base(base, "/api/items", data.get("base"))
     user_id = data.get("userId")
     lib_id = data.get("libraryId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
@@ -271,7 +286,6 @@ def api_items():
     )
     if error is not None:
         return error
-    api_key = data["apiKey"]
     user_id = data["userId"]
     lib_id = data["libraryId"]
 
@@ -315,7 +329,8 @@ def api_items():
 @app.route("/api/export", methods=["POST"])
 def api_export():
     data = request.get_json(force=True)
-    base, error = _validate_base(data, "/api/export")
+    base, api_key = resolve_jellyfin_config(data)
+    base, error = _validate_base(base, "/api/export", data.get("base"))
     user_id = data.get("userId")
     lib_id = data.get("libraryId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
@@ -328,7 +343,6 @@ def api_export():
     )
     if error is not None:
         return error
-    api_key = data["apiKey"]
     user_id = data["userId"]
     lib_id = data["libraryId"]
 
@@ -383,12 +397,12 @@ def api_apply():
     #   ]
     # }
     data = request.get_json(force=True)
-    base, error = _validate_base(data, "/api/apply")
+    base, api_key = resolve_jellyfin_config(data)
+    base, error = _validate_base(base, "/api/apply", data.get("base"))
     changes = data.get("changes") or []
     logger.info("POST /api/apply base=%s changes=%d", base or "", len(changes))
     if error is not None:
         return error
-    api_key = data["apiKey"]
     results = []
     for ch in changes:
         iid = ch.get("id")
