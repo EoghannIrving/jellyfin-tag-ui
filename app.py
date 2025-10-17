@@ -444,7 +444,9 @@ def api_items():
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     filtered: List[Dict[str, Any]] = []
     total_record_count: Optional[int] = None
-    current_start = start
+    total_matches = 0
+    current_start = 0
+    fetch_limit = limit if limit > 0 else 100
 
     def _update_total(payload: Mapping[str, Any]) -> None:
         nonlocal total_record_count
@@ -469,7 +471,7 @@ def api_items():
             include_types,
             fields,
             current_start,
-            limit,
+            fetch_limit,
             exclude_types=excluded_types,
         )
         _update_total(payload)
@@ -484,6 +486,11 @@ def api_items():
 
         for it in items:
             if good(it):
+                total_matches += 1
+                if total_matches <= start:
+                    continue
+                if len(filtered) >= limit:
+                    continue
                 filtered.append(
                     {
                         "Id": it.get("Id", ""),
@@ -498,12 +505,12 @@ def api_items():
         if total_record_count is not None and current_start >= int(total_record_count):
             break
 
-    total = total_record_count if total_record_count is not None else len(filtered)
-    total_matches = len(filtered)
+    total = total_record_count if total_record_count is not None else current_start
+    returned_count = len(filtered)
 
     logger.info(
         "/api/items returning %d filtered items out of %d total (excluded_types=%s)",
-        total_matches,
+        returned_count,
         total,
         list(excluded_types),
     )
@@ -511,7 +518,7 @@ def api_items():
         {
             "TotalRecordCount": total,
             "TotalMatchCount": total_matches,
-            "ReturnedCount": total_matches,
+            "ReturnedCount": returned_count,
             "Items": filtered,
         }
     )
