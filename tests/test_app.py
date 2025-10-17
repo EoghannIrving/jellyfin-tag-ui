@@ -165,6 +165,15 @@ class ItemTagsTest(unittest.TestCase):
 
         self.assertEqual(item_tags(item), ["Parent"])
 
+    def test_trims_whitespace_and_ignores_empty_tags(self):
+        item = {
+            "TagItems": [{"Name": " Action "}, {"Name": "Drama  "}],
+            "Tags": ["Action  ", "  Mystery  ", ""],
+            "InheritedTags": [" Action ", "   "],
+        }
+
+        self.assertEqual(item_tags(item), ["Action", "Drama", "Mystery"])
+
 
 class ApiItemsFieldsTest(unittest.TestCase):
     def setUp(self):
@@ -265,6 +274,61 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(len(data["Items"]), 1)
         self.assertEqual(data["Items"][0]["Id"], "inherited")
         self.assertEqual(data["Items"][0]["Tags"], ["Legacy"])
+
+    def test_api_items_filters_using_trimmed_tags(self):
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            return {
+                "Items": [
+                    {
+                        "Id": "trimmed",
+                        "Type": "Movie",
+                        "Name": "Trimmed",
+                        "Path": "/trimmed.mkv",
+                        "Tags": ["Action  ", "  Mystery  "],
+                        "TagItems": [
+                            {"Name": " Action "},
+                            {"Name": "Drama  "},
+                        ],
+                        "InheritedTags": [" Action "],
+                    }
+                ],
+                "TotalRecordCount": 1,
+            }
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": "Action",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["ReturnedCount"], 1)
+        self.assertEqual(len(data["Items"]), 1)
+        self.assertEqual(data["Items"][0]["Id"], "trimmed")
+        self.assertEqual(
+            data["Items"][0]["Tags"],
+            ["Action", "Drama", "Mystery"],
+        )
 
     def test_api_items_clamps_limit_to_100(self):
         captured = {}
