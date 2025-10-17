@@ -454,6 +454,87 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(len(data["Items"]), 1)
         self.assertEqual(data["Items"][0]["Id"], "match")
 
+    def test_api_items_handles_inaccurate_total_record_count(self):
+        starts = []
+
+        first_page = [
+            {
+                "Id": "match-1",
+                "Type": "Movie",
+                "Name": "Match 1",
+                "Path": "/match-1.mkv",
+                "Tags": ["Keep"],
+                "TagItems": [],
+            },
+            {
+                "Id": "other-1",
+                "Type": "Movie",
+                "Name": "Other 1",
+                "Path": "/other-1.mkv",
+                "Tags": ["Other"],
+                "TagItems": [],
+            },
+        ]
+
+        second_page = [
+            {
+                "Id": "match-2",
+                "Type": "Movie",
+                "Name": "Match 2",
+                "Path": "/match-2.mkv",
+                "Tags": ["Keep"],
+                "TagItems": [],
+            },
+            {
+                "Id": "match-3",
+                "Type": "Movie",
+                "Name": "Match 3",
+                "Path": "/match-3.mkv",
+                "Tags": ["Keep"],
+                "TagItems": [],
+            },
+        ]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            starts.append((start, limit))
+            if start == 0:
+                return {"Items": first_page, "TotalRecordCount": 2}
+            if start == 2:
+                return {"Items": second_page, "TotalRecordCount": 2}
+            return {"Items": [], "TotalRecordCount": 2}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": "Keep",
+                    "limit": 2,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn((0, 2), starts)
+        self.assertIn((2, 2), starts)
+        self.assertEqual(data["TotalMatchCount"], 3)
+
     def test_api_items_limits_results_after_offset(self):
         starts = []
         records = [
@@ -854,6 +935,71 @@ class ApiExportFieldsTest(unittest.TestCase):
         reader = csv.DictReader(io.StringIO(response.data.decode("utf-8")))
         names = [row["name"] for row in reader]
         self.assertEqual(names, ["Alpha", "Bravo"])
+
+    def test_api_export_handles_inaccurate_total_record_count(self):
+        page_calls = []
+
+        first_page = [
+            {
+                "Id": f"bulk-{idx}",
+                "Type": "Movie",
+                "Name": f"Bulk {idx}",
+                "Path": f"/bulk-{idx}.mkv",
+                "Tags": ["Bulk"],
+                "TagItems": [],
+            }
+            for idx in range(500)
+        ]
+
+        second_page = [
+            {
+                "Id": f"tail-{idx}",
+                "Type": "Movie",
+                "Name": f"Tail {idx}",
+                "Path": f"/tail-{idx}.mkv",
+                "Tags": ["Tail"],
+                "TagItems": [],
+            }
+            for idx in range(3)
+        ]
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            page_calls.append((start, limit))
+            if start == 0:
+                return {"Items": first_page, "TotalRecordCount": 200}
+            if start == len(first_page):
+                return {"Items": second_page, "TotalRecordCount": 200}
+            return {"Items": [], "TotalRecordCount": 200}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/export",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        csv_output = response.data.decode("utf-8")
+        self.assertIn((0, 500), page_calls)
+        self.assertIn((len(first_page), 500), page_calls)
+        self.assertIn("tail-1", csv_output)
 
 
 class ApiItemsCollectionExclusionTest(unittest.TestCase):
