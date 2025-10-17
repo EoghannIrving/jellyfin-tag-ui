@@ -19,6 +19,16 @@ function optionList(arr, valueKey, textKey){
 }
 function checkbox(id){ return `<input type="checkbox" class="sel" data-id="${id}">`; }
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[ch] || ch);
+}
+
 document.getElementById("btnUsers").addEventListener("click", async ()=>{
   const data = await api("/api/users", {base: val("base"), apiKey: val("apiKey")});
   const opts = optionList(data, "Id", "Name");
@@ -209,21 +219,66 @@ document.getElementById("btnExport").addEventListener("click", async ()=>{
 document.getElementById("btnApply").addEventListener("click", async ()=>{
   const adds = splitTags(document.getElementById("applyAdd").value);
   const rems = splitTags(document.getElementById("applyRemove").value);
-  const selected = Array.from(document.querySelectorAll("input.sel:checked")).map(cb => cb.dataset.id);
-  if(selected.length === 0){ alert("No items selected"); return; }
+  const selectedCheckboxes = Array.from(document.querySelectorAll("input.sel:checked"));
+  if(selectedCheckboxes.length === 0){ alert("No items selected"); return; }
+
+  const selectedDetails = selectedCheckboxes.map(cb => {
+    const row = cb.closest("tr");
+    const cells = row ? Array.from(row.querySelectorAll("td")) : [];
+    const type = cells[1] ? cells[1].textContent.trim() : "";
+    const name = cells[2] ? cells[2].textContent.trim() : "";
+    return { id: cb.dataset.id, name, type };
+  });
+  const detailLookup = new Map(selectedDetails.map(item => [item.id, item]));
+
   const body = {
     base: val("base"),
     apiKey: val("apiKey"),
     userId: document.getElementById("userId").value,
-    changes: selected.map(id => ({id: id, add: adds, remove: rems}))
+    changes: selectedDetails.map(item => ({id: item.id, add: adds, remove: rems}))
   };
+  const applyButton = document.getElementById("btnApply");
+  applyButton.disabled = true;
   setHtml("applyStatus", "Applying...");
   try{
     const data = await api("/api/apply", body);
-    const errs = data.updated.flatMap(u => u.errors || []);
-    setHtml("applyStatus", errs.length ? ("Done with errors: " + errs.length) : "Done");
+    const updates = data.updated || [];
+    const successes = updates.filter(u => !(u.errors || []).length).length;
+    const failures = updates.length - successes;
+    const summaryParts = [];
+    if(successes){ summaryParts.push(`${successes} successful`); }
+    if(failures){ summaryParts.push(`${failures} failed`); }
+    const summaryText = summaryParts.length ? summaryParts.join(", ") : "No changes applied";
+    const detailItems = updates.map(update => {
+      const errors = update.errors || [];
+      const added = update.added || [];
+      const removed = update.removed || [];
+      const meta = detailLookup.get(update.id) || {name: "", type: ""};
+      const hasName = meta.name && meta.name !== update.id;
+      const itemLabel = hasName
+        ? `${escapeHtml(meta.name)} (${escapeHtml(update.id)})`
+        : escapeHtml(update.id);
+      const changeDescriptions = [];
+      if(added.length){ changeDescriptions.push(`added: ${escapeHtml(added.join(", "))}`); }
+      if(removed.length){ changeDescriptions.push(`removed: ${escapeHtml(removed.join(", "))}`); }
+      const changeDetail = changeDescriptions.length ? `<div>${changeDescriptions.join("; ")}</div>` : "";
+      const errorDetail = errors.length ? `<ul>${errors.map(err => `<li>${escapeHtml(err)}</li>`).join("")}</ul>` : "";
+      const typeLabel = meta.type ? ` <span class="apply-type">[${escapeHtml(meta.type)}]</span>` : "";
+      const statusIcon = errors.length ? "❌" : "✅";
+      return [
+        `<li class="${errors.length ? "apply-error" : "apply-success"}">`,
+        `${statusIcon} <strong>${itemLabel}</strong>${typeLabel}`,
+        changeDetail,
+        errorDetail,
+        "</li>",
+      ].join("");
+    }).join("");
+    const detailsHtml = detailItems ? `<ul class="apply-results">${detailItems}</ul>` : "";
+    setHtml("applyStatus", `<div>${escapeHtml(summaryText)}</div>${detailsHtml}`);
     await search(0);
   }catch(e){
-    setHtml("applyStatus", "Error: " + e.message);
+    setHtml("applyStatus", "Error: " + escapeHtml(e.message));
+  }finally{
+    applyButton.disabled = false;
   }
 });
