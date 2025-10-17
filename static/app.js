@@ -133,6 +133,7 @@ async function search(pageStart=0){
     types: types,
     includeTags: val("includeTags"),
     excludeTags: val("excludeTags"),
+    excludeCollections: document.getElementById("excludeCollections").checked,
     startIndex: pageStart,
     limit: 500
   };
@@ -192,7 +193,8 @@ document.getElementById("btnExport").addEventListener("click", async ()=>{
     apiKey: val("apiKey"),
     userId: document.getElementById("userId").value,
     libraryId: document.getElementById("libraryId").value,
-    types: splitTags(val("types"))
+    types: splitTags(val("types")),
+    excludeCollections: document.getElementById("excludeCollections").checked
   };
   const res = await fetch("/api/export", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
   if(!res.ok){ alert("Export failed"); return; }

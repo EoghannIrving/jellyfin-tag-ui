@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 from flask import Flask, render_template, request, jsonify, send_file
 from flask.typing import ResponseReturnValue
@@ -17,6 +17,8 @@ else:
     logging.getLogger(__name__).warning("Missing .env file at %s", _ENV_PATH)
 
 app = Flask(__name__)
+
+COLLECTION_ITEM_TYPES: Tuple[str, ...] = ("BoxSet", "CollectionFolder")
 
 
 def _configure_logging() -> logging.Logger:
@@ -117,7 +119,15 @@ def item_tags(item):
 
 
 def page_items(
-    base, api_key, user_id, lib_id, include_types, fields, start_index=0, limit=200
+    base,
+    api_key,
+    user_id,
+    lib_id,
+    include_types,
+    fields,
+    start_index=0,
+    limit=200,
+    exclude_types: Optional[Sequence[str]] = None,
 ):
     params = {
         "ParentId": lib_id,
@@ -127,6 +137,8 @@ def page_items(
         "StartIndex": start_index,
         "Limit": limit,
     }
+    if exclude_types:
+        params["ExcludeItemTypes"] = ",".join(exclude_types)
     endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
     return jf_get(endpoint, api_key, params)
 
@@ -275,6 +287,8 @@ def api_items():
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
+    exclude_collections = bool(data.get("excludeCollections"))
+    excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
     start = int(data.get("startIndex", 0))
     limit = int(data.get("limit", 200))
     logger.info(
@@ -294,9 +308,20 @@ def api_items():
 
     fields = ["TagItems", "Name", "Path", "ProviderIds", "Type", "Tags"]
     payload = page_items(
-        base, api_key, user_id, lib_id, include_types, fields, start, limit
+        base,
+        api_key,
+        user_id,
+        lib_id,
+        include_types,
+        fields,
+        start,
+        limit,
+        exclude_types=excluded_types,
     )
     items = payload.get("Items", [])
+    if excluded_types:
+        excluded_set = set(excluded_types)
+        items = [it for it in items if it.get("Type") not in excluded_set]
     total = payload.get("TotalRecordCount", len(items))
 
     def good(item):
@@ -320,9 +345,10 @@ def api_items():
     ]
 
     logger.info(
-        "/api/items returning %d filtered items out of %d total",
+        "/api/items returning %d filtered items out of %d total (excluded_types=%s)",
         len(filtered),
         total,
+        list(excluded_types),
     )
     return jsonify(
         {"TotalRecordCount": total, "ReturnedCount": len(filtered), "Items": filtered}
@@ -337,6 +363,8 @@ def api_export():
     user_id = data.get("userId")
     lib_id = data.get("libraryId")
     include_types = data.get("types") or ["Movie", "Series", "Episode"]
+    exclude_collections = bool(data.get("excludeCollections"))
+    excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
     logger.info(
         "POST /api/export base=%s library=%s user=%s include_types=%s",
         base or "",
@@ -356,11 +384,23 @@ def api_export():
     total_processed = 0
     while True:
         payload = page_items(
-            base, api_key, user_id, lib_id, include_types, fields, start, limit
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            exclude_types=excluded_types,
         )
-        items = payload.get("Items", [])
-        if not items:
+        raw_items = payload.get("Items", [])
+        if not raw_items:
             break
+        items = raw_items
+        if excluded_types:
+            excluded_set = set(excluded_types)
+            items = [it for it in raw_items if it.get("Type") not in excluded_set]
         total_processed += len(items)
         for it in items:
             rows.append(
@@ -372,7 +412,7 @@ def api_export():
                     "tags": ";".join(sorted(item_tags(it), key=str.lower)),
                 }
             )
-        start += len(items)
+        start += len(raw_items)
         if start >= payload.get("TotalRecordCount", start):
             break
     logger.info("/api/export processed %d items for CSV export", total_processed)
