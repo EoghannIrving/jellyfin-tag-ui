@@ -99,11 +99,15 @@ def jf_update_tags(
     item_id: str,
     add: Sequence[str],
     remove: Sequence[str],
+    user_id: Optional[str] = None,
 ):
     if not item_id:
         raise ValueError("Item ID is required to update tags")
 
-    item_endpoint = f"{base}/Items/{item_id}"
+    if user_id:
+        item_endpoint = f"{base}/Users/{user_id}/Items/{item_id}"
+    else:
+        item_endpoint = f"{base}/Items/{item_id}"
     logger.debug("Fetching item %s for tag update", item_endpoint)
     item = jf_get(item_endpoint, api_key)
 
@@ -539,7 +543,14 @@ def api_apply():
             continue
 
         try:
-            final_tags = jf_update_tags(base, api_key, iid, adds, rems)
+            final_tags = jf_update_tags(
+                base,
+                api_key,
+                iid,
+                adds,
+                rems,
+                user_id=user_id,
+            )
             r["added"] = adds
             r["removed"] = rems
             r["tags"] = final_tags

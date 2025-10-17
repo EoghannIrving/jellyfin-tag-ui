@@ -428,6 +428,38 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
             captured["json"], {"Id": "item1", "Tags": ["Comedy", "Sci-Fi"]}
         )
 
+    def test_fetches_user_scoped_endpoint_when_user_id_provided(self):
+        captured = {}
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            captured["get_url"] = url
+            return {
+                "Id": "item1",
+                "Name": "Example",
+                "TagItems": [],
+                "Tags": ["Drama"],
+                "ProviderIds": {},
+            }
+
+        def fake_jf_post(url, api_key, params=None, json=None, timeout=30):
+            captured["post_url"] = url
+            return {}
+
+        with patch("app.jf_get", side_effect=fake_jf_get):
+            with patch("app.jf_post", side_effect=fake_jf_post):
+                app_module.jf_update_tags(
+                    "http://example.com",
+                    "dummy",
+                    "item1",
+                    ["Comedy"],
+                    ["Drama"],
+                    user_id="user123",
+                )
+
+        expected = "http://example.com/Users/user123/Items/item1"
+        self.assertEqual(captured["get_url"], expected)
+        self.assertEqual(captured["post_url"], expected)
+
     def test_retries_with_metadata_when_minimal_payload_rejected(self):
         posts = []
 
@@ -482,8 +514,8 @@ class ApiApplyUpdateTest(unittest.TestCase):
     def test_invokes_helper_for_each_change(self):
         calls = []
 
-        def fake_update(base, api_key, item_id, add, remove):
-            calls.append((base, api_key, item_id, list(add), list(remove)))
+        def fake_update(base, api_key, item_id, add, remove, user_id=None):
+            calls.append((base, api_key, item_id, list(add), list(remove), user_id))
             return ["Merged"]
 
         payload = {
@@ -503,8 +535,8 @@ class ApiApplyUpdateTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("http://example.com", "dummy", "item1", ["TagA"], []),
-                ("http://example.com", "dummy", "item2", [], ["Old"]),
+                ("http://example.com", "dummy", "item1", ["TagA"], [], "user123"),
+                ("http://example.com", "dummy", "item2", [], ["Old"], "user123"),
             ],
         )
         data = response.get_json()
@@ -512,7 +544,7 @@ class ApiApplyUpdateTest(unittest.TestCase):
         self.assertEqual(data["updated"][0]["tags"], ["Merged"])
 
     def test_captures_errors_from_helper(self):
-        def fake_update(base, api_key, item_id, add, remove):
+        def fake_update(base, api_key, item_id, add, remove, user_id=None):
             raise RuntimeError("boom")
 
         payload = {
