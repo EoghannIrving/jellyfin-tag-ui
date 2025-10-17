@@ -106,6 +106,50 @@ class ApiExportFieldsTest(unittest.TestCase):
         self.assertIn("Drama;Sci-Fi", csv_output)
 
 
+class ApiTagsAggregatedFallbackTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_aggregated_fallback_uses_tags_property(self):
+        captured_fields = []
+
+        def fake_page_items(
+            base, api_key, user_id, lib_id, include_types, fields, start, limit
+        ):
+            captured_fields.append(fields)
+            if start == 0:
+                return {
+                    "Items": [
+                        {
+                            "Id": "1",
+                            "Tags": ["Alpha", "beta"],
+                        }
+                    ],
+                    "TotalRecordCount": 1,
+                }
+            return {"Items": [], "TotalRecordCount": 1}
+
+        with patch("app.jf_get", side_effect=RuntimeError("boom")):
+            with patch("app.page_items", side_effect=fake_page_items):
+                response = self.client.post(
+                    "/api/tags",
+                    json={
+                        "base": "http://example.com",
+                        "apiKey": "dummy",
+                        "libraryId": "lib",
+                        "userId": "user",
+                        "types": ["Movie"],
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json)
+        data = response.get_json()
+        self.assertEqual(data.get("source"), "aggregated")
+        self.assertEqual(data.get("tags"), ["Alpha", "beta"])
+        self.assertTrue(any("Tags" in fields for fields in captured_fields))
+
+
 class IndexConfigRenderTest(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
