@@ -33,6 +33,47 @@ const tagStates = new Map();
 let allTags = [];
 const tagSearchInput = document.getElementById("tagSearch");
 
+const TAG_STATE_CONFIG = {
+  "": {
+    className: "",
+    ariaPressed: "false",
+    icon: "•",
+    label: (tag) => `No change for tag ${tag}`,
+  },
+  add: {
+    className: "tag-add",
+    ariaPressed: "true",
+    icon: "+",
+    label: (tag) => `Will add tag ${tag}`,
+  },
+  remove: {
+    className: "tag-remove",
+    ariaPressed: "mixed",
+    icon: "–",
+    label: (tag) => `Will remove tag ${tag}`,
+  },
+};
+
+function applyTagState(button, state) {
+  const config = TAG_STATE_CONFIG[state] || TAG_STATE_CONFIG[""];
+  const tag = button.dataset.tag || "";
+  button.dataset.state = state;
+  button.classList.remove("tag-add", "tag-remove");
+  if (config.className) {
+    button.classList.add(config.className);
+  }
+  button.setAttribute("aria-pressed", config.ariaPressed);
+  button.setAttribute("aria-label", config.label(tag));
+  const iconEl = button.querySelector(".tag-icon");
+  if (iconEl) {
+    iconEl.textContent = config.icon;
+  }
+  const textEl = button.querySelector(".tag-text");
+  if (textEl) {
+    textEl.textContent = tag;
+  }
+}
+
 function currentTagSearchQuery(){
   return tagSearchInput ? tagSearchInput.value : "";
 }
@@ -53,10 +94,21 @@ function renderTagButtons(tags){
   }
   const html = tags.map(tag => {
     const state = tagStates.get(tag) || "";
-    const stateClass = state === "add" ? " tag-add" : state === "remove" ? " tag-remove" : "";
-    return `<button type="button" class="tag${stateClass}" data-tag="${tag}" data-state="${state}"><span>${tag}</span></button>`;
+    const config = TAG_STATE_CONFIG[state] || TAG_STATE_CONFIG[""];
+    const safeTag = escapeHtml(tag);
+    const ariaLabel = escapeHtml(config.label(tag));
+    const stateClass = config.className ? ` ${config.className}` : "";
+    return `
+      <button type="button" class="tag${stateClass}" data-tag="${safeTag}" data-state="${state}" aria-pressed="${config.ariaPressed}" aria-label="${ariaLabel}">
+        <span class="tag-icon" aria-hidden="true">${config.icon}</span>
+        <span class="tag-text">${safeTag}</span>
+      </button>
+    `;
   }).join(" ");
   setHtml("tagList", html);
+  document.querySelectorAll("#tagList .tag").forEach((button) => {
+    applyTagState(button, button.dataset.state || "");
+  });
 }
 
 document.getElementById("btnUsers").addEventListener("click", async ()=>{
@@ -153,19 +205,13 @@ document.getElementById("tagList").addEventListener("click", (event) => {
     }
   }
 
-  target.dataset.state = nextState;
-  target.classList.remove("tag-add", "tag-remove");
-  if (nextState === "add") {
-    target.classList.add("tag-add");
-  } else if (nextState === "remove") {
-    target.classList.add("tag-remove");
-  }
-
   if (nextState) {
     tagStates.set(tag, nextState);
   } else {
     tagStates.delete(tag);
   }
+
+  applyTagState(target, nextState);
 
   setTagInputs(addTags, removeTags);
 });
