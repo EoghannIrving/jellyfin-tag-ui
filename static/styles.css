@@ -38,6 +38,15 @@ th{ color:var(--muted); }
 .results-main table tr.is-selected{ background:rgba(83,177,255,0.15); }
 .results-main table tr.is-selected td{ border-bottom-color:var(--accent); }
 
+.results-main table th:nth-child(5),
+.results-main table td:nth-child(5),
+.results-main table th:nth-child(6),
+.results-main table td:nth-child(6){
+  white-space:normal;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
 .results-layout{ display:flex; gap:16px; align-items:flex-start; }
 .results-main{ flex:1 1 auto; min-width:0; }
 #selectedItemsPanel{ flex:0 0 280px; background:#0f172a; border:1px solid var(--line); border-radius:12px; padding:16px; position:sticky; top:16px; max-height:calc(100vh - 96px); overflow:auto; }
