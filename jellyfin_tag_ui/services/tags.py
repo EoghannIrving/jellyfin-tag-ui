@@ -355,6 +355,17 @@ def render_nfo(metadata: Mapping[str, Any]) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+def _tag_lookup_key(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    text = value.strip()
+    if not text:
+        return None
+    return text.casefold()
+
+
 def jf_update_tags(
     base: str,
     api_key: str,
@@ -374,19 +385,26 @@ def jf_update_tags(
     item = jf_get(fetch_endpoint, api_key)
 
     existing_tags = item_tags(item)
-    merged: Dict[str, str] = {
-        tag.lower(): tag for tag in existing_tags if isinstance(tag, str) and tag
-    }
+    merged: Dict[str, str] = {}
+    for tag in existing_tags:
+        key = _tag_lookup_key(tag)
+        if key is None:
+            continue
+        merged[key] = str(tag)
 
     for tag in add:
-        if tag:
-            merged[tag.lower()] = tag
+        key = _tag_lookup_key(tag)
+        if key is None:
+            continue
+        merged[key] = str(tag)
 
     for tag in remove:
-        if tag:
-            merged.pop(tag.lower(), None)
+        key = _tag_lookup_key(tag)
+        if key is None:
+            continue
+        merged.pop(key, None)
 
-    final_tags = sorted(merged.values(), key=str.lower)
+    final_tags = sorted(merged.values(), key=str.casefold)
 
     payload = _filtered_update_payload(item)
     payload["Id"] = payload.get("Id") or item_id

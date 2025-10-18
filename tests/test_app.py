@@ -155,6 +155,45 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         self.assertEqual(post_payload["Id"], item_id)
         self.assertEqual(post_payload["Tags"], ["New"])
 
+    def test_removes_tags_using_casefold_matching(self):
+        base = "http://example.com"
+        api_key = "token"
+        item_id = "12345"
+        item_payload = {
+            "Id": item_id,
+            "Tags": ["Straße"],
+            "TagItems": [],
+            "Path": "/media/example.mkv",
+        }
+
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", return_value=item_payload
+        ) as mock_get, patch(
+            "jellyfin_tag_ui.services.tags.jf_put_with_fallback", return_value={}
+        ) as mock_put, patch(
+            "jellyfin_tag_ui.services.tags.render_nfo", return_value="<item />"
+        ), patch(
+            "jellyfin_tag_ui.services.tags.Path"
+        ) as mock_path:
+            mock_path_instance = mock_path.return_value
+            mock_nfo_path = MagicMock()
+            mock_nfo_path.parent = MagicMock()
+            mock_path_instance.with_suffix.return_value = mock_nfo_path
+
+            result = jf_update_tags(
+                base,
+                api_key,
+                item_id,
+                add=[],
+                remove=["STRASSE"],
+            )
+
+        self.assertEqual(result, [])
+        mock_get.assert_called_once_with(f"{base}/Items/{item_id}", api_key)
+        mock_put.assert_called_once()
+        payload = mock_put.call_args.kwargs["json"]
+        self.assertEqual(payload["Tags"], [])
+
 
 class JellyfinClientJsonParsingTest(unittest.TestCase):
     def test_parses_json_with_case_insensitive_content_type(self):
