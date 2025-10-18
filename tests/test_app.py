@@ -24,6 +24,7 @@ if "dotenv" not in sys.modules:
 
 from jellyfin_tag_ui import create_app  # noqa: E402
 from jellyfin_tag_ui.config import COLLECTION_ITEM_TYPES  # noqa: E402
+from jellyfin_tag_ui.jellyfin_client import jf_post  # noqa: E402
 from jellyfin_tag_ui.services import tags as tags_module  # noqa: E402
 from jellyfin_tag_ui.services.tags import item_tags, jf_update_tags  # noqa: E402
 
@@ -153,6 +154,22 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         self.assertEqual(put_payload, post_payload)
         self.assertEqual(post_payload["Id"], item_id)
         self.assertEqual(post_payload["Tags"], ["New"])
+
+
+class JellyfinClientJsonParsingTest(unittest.TestCase):
+    def test_parses_json_with_case_insensitive_content_type(self):
+        payload = {"status": "ok"}
+        response = DummyResponse(
+            json_data=payload,
+            headers={"content-type": "Application/Json; charset=utf-8"},
+        )
+
+        with patch(
+            "jellyfin_tag_ui.jellyfin_client.requests.post", return_value=response
+        ):
+            result = jf_post("http://example.com/Items", "token")
+
+        self.assertEqual(result, payload)
 
 
 class ItemTagsTest(unittest.TestCase):
