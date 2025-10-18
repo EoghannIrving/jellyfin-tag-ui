@@ -2057,5 +2057,184 @@ class ApiTagsOrderingTest(unittest.TestCase):
         self.assertGreaterEqual(mock_page_items.call_count, 2)
 
 
+class ApiExportTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_export_normalizes_filters_and_streams_filtered_rows(self):
+        captured_calls: List[Dict[str, Any]] = []
+
+        first_payload = {
+            "Items": [
+                {
+                    "Id": "match",
+                    "Type": "Movie",
+                    "Name": "Example Match",
+                    "SortName": "Example Match",
+                    "Path": "/media/match.mkv",
+                    "TagItems": [{"Name": "Action"}],
+                    "Tags": ["Drama"],
+                    "InheritedTags": [],
+                },
+                {
+                    "Id": "skip-tag",
+                    "Type": "Movie",
+                    "Name": "Example Skip",
+                    "SortName": "Example Skip",
+                    "Path": "/media/skip.mkv",
+                    "TagItems": [],
+                    "Tags": ["Skip"],
+                    "InheritedTags": [],
+                },
+                {
+                    "Id": "collection",
+                    "Type": "BoxSet",
+                    "Name": "Example Collection",
+                    "SortName": "Example Collection",
+                    "Path": "/media/collection",
+                    "TagItems": [],
+                    "Tags": ["Action"],
+                    "InheritedTags": [],
+                },
+                {
+                    "Id": "wrong-title",
+                    "Type": "Episode",
+                    "Name": "Irrelevant",
+                    "SortName": "Irrelevant",
+                    "Path": "/media/wrong.mkv",
+                    "TagItems": [],
+                    "Tags": ["Action", "Drama"],
+                    "InheritedTags": [],
+                },
+            ],
+            "TotalRecordCount": 4,
+        }
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            call_details = {
+                "base": base,
+                "api_key": api_key,
+                "user_id": user_id,
+                "lib_id": lib_id,
+                "include_types": list(include_types or []),
+                "fields": list(fields or []),
+                "start": start,
+                "limit": limit,
+                "search_term": search_term,
+                "exclude_types": tuple(exclude_types or ()),
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+            }
+            captured_calls.append(call_details)
+            if start == 0:
+                return first_payload
+            return {"Items": [], "TotalRecordCount": 4}
+
+        captured_csv: Dict[str, Any] = {}
+
+        def fake_send_file(mem, mimetype, as_attachment, download_name):
+            payload = mem.getvalue()
+            captured_csv.update(
+                {
+                    "content": payload,
+                    "mimetype": mimetype,
+                    "as_attachment": as_attachment,
+                    "download_name": download_name,
+                }
+            )
+            response = app.response_class(payload, mimetype=mimetype)
+            response.direct_passthrough = False
+            return response
+
+        with patch(
+            "app.page_items", side_effect=fake_page_items
+        ) as mock_page_items, patch(
+            "app.send_file", side_effect=fake_send_file
+        ) as mock_send_file:
+            response = self.client.post(
+                "/api/export",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "token",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie ", "Episode", "", None],
+                    "includeTags": " Action ;Drama ,Action ",
+                    "excludeTags": " Skip ;Other ",
+                    "titleQuery": "  Example  ",
+                    "excludeCollections": True,
+                    "sortBy": "PremiereDate",
+                    "sortOrder": "desc",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(captured_calls), 1)
+        call = captured_calls[0]
+        self.assertEqual(call["base"], "http://example.com")
+        self.assertEqual(call["api_key"], "token")
+        self.assertEqual(call["user_id"], "user")
+        self.assertEqual(call["lib_id"], "lib")
+        self.assertEqual(call["include_types"], ["Movie", "Episode"])
+        self.assertEqual(
+            call["fields"],
+            [
+                "TagItems",
+                "InheritedTags",
+                "Name",
+                "Path",
+                "ProviderIds",
+                "Type",
+                "Tags",
+                "SortName",
+                "PremiereDate",
+                "ProductionYear",
+            ],
+        )
+        self.assertEqual(call["start"], 0)
+        self.assertEqual(call["limit"], 500)
+        self.assertEqual(call["search_term"], "Example")
+        self.assertEqual(call["exclude_types"], COLLECTION_ITEM_TYPES)
+        self.assertEqual(call["sort_by"], "PremiereDate")
+        self.assertEqual(call["sort_order"], "Descending")
+
+        mock_page_items.assert_called()
+        mock_send_file.assert_called_once()
+        self.assertEqual(captured_csv["mimetype"], "text/csv")
+        self.assertTrue(captured_csv["as_attachment"])
+        self.assertEqual(captured_csv["download_name"], "tags_export.csv")
+
+        csv_bytes = captured_csv["content"]
+        self.assertIsInstance(csv_bytes, (bytes, bytearray))
+        csv_text = csv_bytes.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(csv_text))
+        rows = list(reader)
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "id": "match",
+                    "type": "Movie",
+                    "name": "Example Match",
+                    "path": "/media/match.mkv",
+                    "tags": "Action;Drama",
+                }
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
