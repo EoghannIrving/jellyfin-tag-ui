@@ -3,7 +3,7 @@ import os
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 from xml.etree import ElementTree as ET
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -421,6 +421,34 @@ def item_tags(item):
         _add(name)
 
     return names
+
+
+def _item_matches_filters(
+    item: Mapping[str, Any],
+    include_tag_keys: Set[str],
+    exclude_tag_keys: Set[str],
+    title_query_lower: str,
+) -> bool:
+    tags = {t.casefold() for t in item_tags(item)}
+    if include_tag_keys and not include_tag_keys.issubset(tags):
+        return False
+    if exclude_tag_keys and tags.intersection(exclude_tag_keys):
+        return False
+    if title_query_lower:
+        candidate_values: List[str] = []
+        for key in ("Name", "SortName"):
+            value = item.get(key)
+            if value is None:
+                continue
+            text = str(value)
+            if not text.strip():
+                continue
+            candidate_values.append(text)
+        if not any(
+            title_query_lower in candidate.casefold() for candidate in candidate_values
+        ):
+            return False
+    return True
 
 
 def _normalized_count(value: Any) -> Optional[int]:
@@ -844,6 +872,8 @@ def api_items():
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
     title_query_raw = data.get("titleQuery")
     title_query = str(title_query_raw or "").strip()
+    include_tag_keys: Set[str] = {tag.casefold() for tag in include_tags}
+    exclude_tag_keys: Set[str] = {tag.casefold() for tag in exclude_tags}
     start = max(0, int(data.get("startIndex", 0)))
     limit = int(data.get("limit", 100))
     if limit > 100:
@@ -887,29 +917,6 @@ def api_items():
     fetch_limit = limit if limit > 0 else 100
     title_query_lower = title_query.casefold() if title_query else ""
 
-    def good(item):
-        tags = set([t.lower() for t in item_tags(item)])
-        if include_tags and not all(t.lower() in tags for t in include_tags):
-            return False
-        if exclude_tags and any(t.lower() in tags for t in exclude_tags):
-            return False
-        if title_query_lower:
-            candidate_values = []
-            for key in ("Name", "SortName"):
-                value = item.get(key)
-                if value is None:
-                    continue
-                text = str(value)
-                if not text.strip():
-                    continue
-                candidate_values.append(text)
-            if not any(
-                title_query_lower in candidate.casefold()
-                for candidate in candidate_values
-            ):
-                return False
-        return True
-
     while True:
         payload = page_items(
             base,
@@ -935,7 +942,9 @@ def api_items():
             items = [it for it in raw_items if it.get("Type") not in excluded_set]
 
         for it in items:
-            if good(it):
+            if _item_matches_filters(
+                it, include_tag_keys, exclude_tag_keys, title_query_lower
+            ):
                 matched_items.append(_serialize_item_for_response(it))
 
         page_size = len(raw_items)
@@ -988,17 +997,28 @@ def api_export():
     user_id = data.get("userId")
     lib_id = data.get("libraryId")
     include_types = normalize_item_types(data.get("types"))
+    include_tags = normalize_tags(data.get("includeTags", ""))
+    exclude_tags = normalize_tags(data.get("excludeTags", ""))
     exclude_collections = bool(data.get("excludeCollections"))
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
+    title_query_raw = data.get("titleQuery")
+    title_query = str(title_query_raw or "").strip()
+    include_tag_keys: Set[str] = {tag.casefold() for tag in include_tags}
+    exclude_tag_keys: Set[str] = {tag.casefold() for tag in exclude_tags}
+    title_query_lower = title_query.casefold() if title_query else ""
     sort_by, sort_order = normalize_sort_params(
         data.get("sortBy"), data.get("sortOrder")
     )
     logger.info(
-        "POST /api/export base=%s library=%s user=%s include_types=%s sort_by=%s sort_order=%s",
+        "POST /api/export base=%s library=%s user=%s include_types=%s include=%s exclude=%s title_query=%s exclude_collections=%s sort_by=%s sort_order=%s",
         base or "",
         lib_id,
         user_id,
         include_types,
+        include_tags,
+        exclude_tags,
+        title_query,
+        exclude_collections,
         sort_by,
         sort_order,
     )
@@ -1021,7 +1041,7 @@ def api_export():
     ]
     start = 0
     fetch_limit = 500
-    collected_items: List[Dict[str, Any]] = []
+    matched_items: List[Dict[str, Any]] = []
     total_processed = 0
     while True:
         payload = page_items(
@@ -1033,6 +1053,7 @@ def api_export():
             fields,
             start,
             fetch_limit,
+            search_term=title_query if title_query else None,
             exclude_types=excluded_types,
             sort_by=sort_by,
             sort_order=sort_order,
@@ -1046,7 +1067,10 @@ def api_export():
             items = [it for it in raw_items if it.get("Type") not in excluded_set]
         total_processed += len(items)
         for it in items:
-            collected_items.append(_serialize_item_for_response(it))
+            if _item_matches_filters(
+                it, include_tag_keys, exclude_tag_keys, title_query_lower
+            ):
+                matched_items.append(_serialize_item_for_response(it))
         page_size = len(raw_items)
         start += page_size
         total_count = payload.get("TotalRecordCount")
@@ -1060,9 +1084,15 @@ def api_export():
             continue
         if page_size < fetch_limit:
             break
-    logger.info("/api/export processed %d items for CSV export", total_processed)
+    filtered_count = len(matched_items)
+    logger.info(
+        "/api/export processed %d items and retained %d after filtering (excluded_types=%s)",
+        total_processed,
+        filtered_count,
+        list(excluded_types),
+    )
 
-    sorted_items = sort_items_for_response(collected_items, sort_by, sort_order)
+    sorted_items = sort_items_for_response(matched_items, sort_by, sort_order)
     rows = [
         {
             "id": item.get("Id", ""),
