@@ -40,11 +40,35 @@ def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _iter_tag_values(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        sources = [value]
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        sources = []
+        for entry in value:
+            sources.extend(_iter_tag_values(entry))
+        return sources
+    else:
+        sources = [str(value)]
+
+    results: List[str] = []
+    for source in sources:
+        for part in source.split(","):
+            for candidate in part.split(";"):
+                text = candidate.strip()
+                if text:
+                    results.append(text)
+    return results
+
+
 def normalize_tags(tag_string: Any) -> List[str]:
     if not tag_string:
         return []
-    raw = [t.strip() for part in str(tag_string).split(",") for t in part.split(";")]
-    return sorted(list({t for t in raw if t}), key=str.lower)
+
+    raw_values: List[str] = _iter_tag_values(tag_string)
+    return sorted(list({tag for tag in raw_values if tag}), key=str.lower)
 
 
 def item_tags(item: Mapping[str, Any]) -> List[str]:

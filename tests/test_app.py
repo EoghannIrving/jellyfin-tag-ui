@@ -536,6 +536,66 @@ class ApiItemsFieldsTest(unittest.TestCase):
             ["Action", "Drama", "Mystery"],
         )
 
+    def test_api_items_accepts_list_of_include_tags(self):
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            return {
+                "Items": [
+                    {
+                        "Id": "match",
+                        "Type": "Movie",
+                        "Name": "Match",
+                        "Path": "/match.mkv",
+                        "Tags": ["Action", "Mystery"],
+                        "TagItems": [],
+                        "InheritedTags": [],
+                    },
+                    {
+                        "Id": "other",
+                        "Type": "Movie",
+                        "Name": "Other",
+                        "Path": "/other.mkv",
+                        "Tags": ["Other"],
+                        "TagItems": [],
+                        "InheritedTags": [],
+                    },
+                ],
+                "TotalRecordCount": 2,
+            }
+
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": ["Action", "Mystery"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["ReturnedCount"], 1)
+        self.assertEqual(len(data["Items"]), 1)
+        self.assertEqual(data["Items"][0]["Id"], "match")
+
     def test_api_items_clamps_limit_to_100(self):
         captured = {}
 
