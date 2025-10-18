@@ -22,8 +22,12 @@ if "dotenv" not in sys.modules:
     setattr(mock_dotenv, "load_dotenv", _load_dotenv)  # type: ignore[attr-defined]
     sys.modules["dotenv"] = mock_dotenv
 
-import app as app_module  # noqa: E402
-from app import COLLECTION_ITEM_TYPES, app, item_tags  # noqa: E402
+from jellyfin_tag_ui import create_app  # noqa: E402
+from jellyfin_tag_ui.config import COLLECTION_ITEM_TYPES  # noqa: E402
+from jellyfin_tag_ui.services import tags as tags_module  # noqa: E402
+from jellyfin_tag_ui.services.tags import item_tags, jf_update_tags  # noqa: E402
+
+app = create_app()
 
 
 class DummyResponse:
@@ -67,12 +71,16 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
             "Path": "/media/example.mkv",
         }
 
-        with patch("app.jf_get", return_value=item_payload) as mock_get, patch(
-            "app.requests.put", return_value=DummyResponse()
-        ) as mock_put, patch("app.jf_post") as mock_post, patch(
-            "app.render_nfo", return_value="<item />"
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", return_value=item_payload
+        ) as mock_get, patch(
+            "jellyfin_tag_ui.jellyfin_client.requests.put", return_value=DummyResponse()
+        ) as mock_put, patch(
+            "jellyfin_tag_ui.jellyfin_client.jf_post"
+        ) as mock_post, patch(
+            "jellyfin_tag_ui.services.tags.render_nfo", return_value="<item />"
         ) as mock_render, patch(
-            "app.Path"
+            "jellyfin_tag_ui.services.tags.Path"
         ) as mock_path:
             mock_post.return_value = {}
             mock_path_instance = mock_path.return_value
@@ -80,7 +88,7 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
             mock_parent = MagicMock()
             mock_nfo_path.parent = mock_parent
             mock_path_instance.with_suffix.return_value = mock_nfo_path
-            result = app_module.jf_update_tags(
+            result = jf_update_tags(
                 base,
                 api_key,
                 item_id,
@@ -121,13 +129,14 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         error_response._http_error = unsupported_error
 
         with patch(
-            "app.jf_get", return_value={"Id": item_id, "Tags": [], "TagItems": []}
+            "jellyfin_tag_ui.services.tags.jf_get",
+            return_value={"Id": item_id, "Tags": [], "TagItems": []},
         ) as mock_get, patch(
-            "app.requests.put", return_value=error_response
+            "jellyfin_tag_ui.jellyfin_client.requests.put", return_value=error_response
         ) as mock_put, patch(
-            "app.jf_post", return_value={}
+            "jellyfin_tag_ui.jellyfin_client.jf_post", return_value={}
         ) as mock_post:
-            result = app_module.jf_update_tags(
+            result = jf_update_tags(
                 base,
                 api_key,
                 item_id,
@@ -201,7 +210,7 @@ class ApiTagsPaginationTest(unittest.TestCase):
             call_index = len(calls)
             calls.append({"url": url, "params": dict(params or {})})
             self.assertTrue(url.endswith("/Users/user/Items/Tags"))
-            self.assertEqual(params.get("Limit"), app_module.TAG_PAGE_LIMIT)
+            self.assertEqual(params.get("Limit"), tags_module.TAG_PAGE_LIMIT)
             expected_start = 0 if call_index == 0 else 2
             self.assertEqual(params.get("StartIndex"), expected_start)
             try:
@@ -209,8 +218,8 @@ class ApiTagsPaginationTest(unittest.TestCase):
             except IndexError as exc:  # pragma: no cover - defensive
                 raise AssertionError("Unexpected pagination request") from exc
 
-        with patch("app.TAG_PAGE_LIMIT", 2), patch(
-            "app.jf_get", side_effect=fake_jf_get
+        with patch("jellyfin_tag_ui.services.tags.TAG_PAGE_LIMIT", 2), patch(
+            "jellyfin_tag_ui.services.tags.jf_get", side_effect=fake_jf_get
         ):
             response = self.client.post(
                 "/api/tags",
@@ -250,7 +259,7 @@ class ApiTagsPaginationTest(unittest.TestCase):
             call_index = len(calls)
             calls.append({"url": url, "params": dict(params or {})})
             self.assertTrue(url.endswith("/Items/Tags"))
-            self.assertEqual(params.get("Limit"), app_module.TAG_PAGE_LIMIT)
+            self.assertEqual(params.get("Limit"), tags_module.TAG_PAGE_LIMIT)
             expected_start = 0 if call_index == 0 else 2
             self.assertEqual(params.get("StartIndex"), expected_start)
             try:
@@ -258,8 +267,8 @@ class ApiTagsPaginationTest(unittest.TestCase):
             except IndexError as exc:  # pragma: no cover - defensive
                 raise AssertionError("Unexpected pagination request") from exc
 
-        with patch("app.TAG_PAGE_LIMIT", 2), patch(
-            "app.jf_get", side_effect=fake_jf_get
+        with patch("jellyfin_tag_ui.services.tags.TAG_PAGE_LIMIT", 2), patch(
+            "jellyfin_tag_ui.services.tags.jf_get", side_effect=fake_jf_get
         ):
             response = self.client.post(
                 "/api/tags",
@@ -301,7 +310,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
             captured["fields"] = fields
             return {"Items": [], "TotalRecordCount": 0}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -358,7 +369,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 return responses[idx]
             return {"Items": [], "TotalRecordCount": 1}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -412,7 +425,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 "TotalRecordCount": 1,
             }
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -455,7 +470,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
             captured["limit"] = limit
             return {"Items": [], "TotalRecordCount": 0}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -492,7 +509,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
             captured["sort_order"] = sort_order
             return {"Items": [], "TotalRecordCount": 0}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -530,7 +549,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
             captured["search_term"] = search_term
             return {"Items": [], "TotalRecordCount": 0}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -593,7 +614,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
             call_index["value"] += 1
             return responses[idx]
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -640,7 +663,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 2}
 
-        with patch("app.jf_get", side_effect=fake_jf_get):
+        with patch("jellyfin_tag_ui.services.items.jf_get", side_effect=fake_jf_get):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -708,7 +731,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 2}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -792,7 +817,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 return {"Items": second_page, "TotalRecordCount": 2}
             return {"Items": [], "TotalRecordCount": 2}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -873,7 +900,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 "TotalRecordCount": len(records),
             }
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -945,7 +974,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 "TotalRecordCount": len(records),
             }
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -1011,7 +1042,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 return {"Items": third_page, "TotalRecordCount": 120}
             return {"Items": [], "TotalRecordCount": 120}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -1075,7 +1108,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 2}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -1141,7 +1176,9 @@ class ApiItemsFieldsTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 3}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -1202,7 +1239,9 @@ class ApiExportFieldsTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 1}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/export",
                 json={
@@ -1263,7 +1302,9 @@ class ApiExportFieldsTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 2}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/export",
                 json={
@@ -1331,7 +1372,9 @@ class ApiExportFieldsTest(unittest.TestCase):
                 return {"Items": second_page, "TotalRecordCount": 200}
             return {"Items": [], "TotalRecordCount": 200}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/export",
                 json={
@@ -1389,7 +1432,9 @@ class ApiExportFieldsTest(unittest.TestCase):
                 return {"Items": third_page, "TotalRecordCount": 600}
             return {"Items": [], "TotalRecordCount": 600}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/export",
                 json={
@@ -1452,7 +1497,9 @@ class ApiItemsCollectionExclusionTest(unittest.TestCase):
                 "TotalRecordCount": 2,
             }
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/items",
                 json={
@@ -1522,7 +1569,9 @@ class ApiExportCollectionExclusionTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 2}
 
-        with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
             response = self.client.post(
                 "/api/export",
                 json={
@@ -1576,8 +1625,12 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 1}
 
-        with patch("app.jf_get", side_effect=RuntimeError("boom")):
-            with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", side_effect=RuntimeError("boom")
+        ):
+            with patch(
+                "jellyfin_tag_ui.services.items.page_items", side_effect=fake_page_items
+            ):
                 response = self.client.post(
                     "/api/tags",
                     json={
@@ -1626,8 +1679,12 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
                 return {"Items": second_page, "TotalRecordCount": 425}
             return {"Items": [], "TotalRecordCount": 425}
 
-        with patch("app.jf_get", side_effect=RuntimeError("boom")):
-            with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", side_effect=RuntimeError("boom")
+        ):
+            with patch(
+                "jellyfin_tag_ui.services.items.page_items", side_effect=fake_page_items
+            ):
                 response = self.client.post(
                     "/api/tags",
                     json={
@@ -1685,8 +1742,12 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
                 return {"Items": third_page, "TotalRecordCount": 600}
             return {"Items": [], "TotalRecordCount": 600}
 
-        with patch("app.jf_get", side_effect=RuntimeError("boom")):
-            with patch("app.page_items", side_effect=fake_page_items):
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", side_effect=RuntimeError("boom")
+        ):
+            with patch(
+                "jellyfin_tag_ui.services.items.page_items", side_effect=fake_page_items
+            ):
                 response = self.client.post(
                     "/api/tags",
                     json={
@@ -1791,7 +1852,7 @@ class ApiConfigFallbackTest(unittest.TestCase):
                 "JELLYFIN_API_KEY": "env-key",
             },
         ):
-            with patch("app.jf_get", side_effect=fake_jf_get):
+            with patch("jellyfin_tag_ui.routes.users.jf_get", side_effect=fake_jf_get):
                 response = self.client.post("/api/users", json={})
 
         self.assertEqual(response.status_code, 200)
@@ -1818,9 +1879,12 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
             captured["json"] = json
             return {}
 
-        with patch("app.jf_get", side_effect=fake_jf_get):
-            with patch("app.jf_put_with_fallback", side_effect=fake_put):
-                final_tags = app_module.jf_update_tags(
+        with patch("jellyfin_tag_ui.services.tags.jf_get", side_effect=fake_jf_get):
+            with patch(
+                "jellyfin_tag_ui.services.tags.jf_put_with_fallback",
+                side_effect=fake_put,
+            ):
+                final_tags = jf_update_tags(
                     "http://example.com", "dummy", "item1", ["Comedy"], ["Drama"]
                 )
 
@@ -1854,9 +1918,12 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
             captured["payload"] = json
             return {}
 
-        with patch("app.jf_get", side_effect=fake_jf_get):
-            with patch("app.jf_put_with_fallback", side_effect=fake_put):
-                app_module.jf_update_tags(
+        with patch("jellyfin_tag_ui.services.tags.jf_get", side_effect=fake_jf_get):
+            with patch(
+                "jellyfin_tag_ui.services.tags.jf_put_with_fallback",
+                side_effect=fake_put,
+            ):
+                jf_update_tags(
                     "http://example.com",
                     "dummy",
                     "item1",
@@ -1887,9 +1954,12 @@ class JfUpdateTagsHelperTest(unittest.TestCase):
             captured_payload.update(json or {})
             return {}
 
-        with patch("app.jf_get", side_effect=fake_jf_get):
-            with patch("app.jf_put_with_fallback", side_effect=fake_put):
-                tags = app_module.jf_update_tags(
+        with patch("jellyfin_tag_ui.services.tags.jf_get", side_effect=fake_jf_get):
+            with patch(
+                "jellyfin_tag_ui.services.tags.jf_put_with_fallback",
+                side_effect=fake_put,
+            ):
+                tags = jf_update_tags(
                     "http://example.com", "dummy", "item1", ["Comedy"], ["Drama"]
                 )
 
@@ -1936,7 +2006,9 @@ class ApiApplyUpdateTest(unittest.TestCase):
             ],
         }
 
-        with patch("app.jf_update_tags", side_effect=fake_update):
+        with patch(
+            "jellyfin_tag_ui.routes.apply.jf_update_tags", side_effect=fake_update
+        ):
             response = self.client.post("/api/apply", json=payload)
 
         self.assertEqual(response.status_code, 200)
@@ -1964,7 +2036,9 @@ class ApiApplyUpdateTest(unittest.TestCase):
             ],
         }
 
-        with patch("app.jf_update_tags", side_effect=fake_update):
+        with patch(
+            "jellyfin_tag_ui.routes.apply.jf_update_tags", side_effect=fake_update
+        ):
             response = self.client.post("/api/apply", json=payload)
 
         self.assertEqual(response.status_code, 200)
@@ -1989,7 +2063,9 @@ class ApiTagsOrderingTest(unittest.TestCase):
             ]
         }
 
-        with patch("app.jf_get", return_value=payload) as mock_get:
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", return_value=payload
+        ) as mock_get:
             response = self.client.post(
                 "/api/tags",
                 json={
@@ -2035,8 +2111,10 @@ class ApiTagsOrderingTest(unittest.TestCase):
                 }
             return {"Items": [], "TotalRecordCount": 3}
 
-        with patch("app.jf_get", side_effect=failures) as mock_get, patch(
-            "app.page_items", side_effect=fake_page_items
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", side_effect=failures
+        ) as mock_get, patch(
+            "jellyfin_tag_ui.services.items.page_items", side_effect=fake_page_items
         ) as mock_page_items:
             response = self.client.post(
                 "/api/tags",
@@ -2160,9 +2238,9 @@ class ApiExportTest(unittest.TestCase):
             return response
 
         with patch(
-            "app.page_items", side_effect=fake_page_items
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
         ) as mock_page_items, patch(
-            "app.send_file", side_effect=fake_send_file
+            "jellyfin_tag_ui.routes.items.send_file", side_effect=fake_send_file
         ) as mock_send_file:
             response = self.client.post(
                 "/api/export",
