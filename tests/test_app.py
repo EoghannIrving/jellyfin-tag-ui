@@ -27,6 +27,7 @@ from jellyfin_tag_ui import create_app  # noqa: E402
 from jellyfin_tag_ui.config import COLLECTION_ITEM_TYPES  # noqa: E402
 from jellyfin_tag_ui.jellyfin_client import jf_post  # noqa: E402
 from jellyfin_tag_ui.services import tags as tags_module  # noqa: E402
+from jellyfin_tag_ui.services.items import normalize_item_types  # noqa: E402
 from jellyfin_tag_ui.services.tags import (  # noqa: E402
     item_tags,
     jf_update_tags,
@@ -198,6 +199,18 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         mock_put.assert_called_once()
         payload = mock_put.call_args.kwargs["json"]
         self.assertEqual(payload["Tags"], [])
+
+
+class NormalizeItemTypesTest(unittest.TestCase):
+    def test_splits_comma_delimited_strings(self):
+        result = normalize_item_types("Movie,Series , Episode")
+        self.assertEqual(result, ["Movie", "Series", "Episode"])
+
+    def test_flattens_nested_sequences(self):
+        result = normalize_item_types(
+            ["Movie", ["Series,Episode", None], " Documentaries "]
+        )
+        self.assertEqual(result, ["Movie", "Series", "Episode", "Documentaries"])
 
 
 class FrontendUtilsTest(unittest.TestCase):

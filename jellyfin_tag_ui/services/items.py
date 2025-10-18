@@ -14,21 +14,24 @@ def normalize_item_types(raw_types: Any) -> List[str]:
     if raw_types is None:
         return []
 
-    if isinstance(raw_types, str):
-        candidates: Sequence[Any] = [raw_types]
-    elif isinstance(raw_types, Sequence) and not isinstance(
-        raw_types, (str, bytes, bytearray)
-    ):
-        candidates = list(raw_types)
-    else:
-        candidates = [raw_types]
-
-    normalized: List[str] = []
-    for value in candidates:
+    def _iter_candidates(value: Any) -> Iterable[str]:
+        if isinstance(value, str):
+            for part in value.split(","):
+                text = part.strip()
+                if text:
+                    yield text
+            return
+        if isinstance(value, Sequence) and not isinstance(
+            value, (str, bytes, bytearray)
+        ):
+            for entry in value:
+                yield from _iter_candidates(entry)
+            return
         text = str(value or "").strip()
         if text:
-            normalized.append(text)
-    return normalized
+            yield text
+
+    return list(_iter_candidates(raw_types))
 
 
 def normalize_sort_params(sort_by: Any, sort_order: Any) -> Tuple[str, str]:
