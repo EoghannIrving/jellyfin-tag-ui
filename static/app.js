@@ -735,12 +735,27 @@ function renderTagButtons(tags){
   updateTagActionSummary();
 }
 
-function buildSearchBody(startIndex){
+function readSearchFilters(){
   const typesInput = val("types");
   const parsedTypes = splitTags(typesInput);
   const types = parsedTypes.length > 0 ? parsedTypes : null;
   const titleQueryValue = val("titleQuery");
   const titleQuery = titleQueryValue ? titleQueryValue : null;
+  const includeTagsValue = val("includeTags");
+  const excludeTagsValue = val("excludeTags");
+  const excludeCollectionsEl = document.getElementById("excludeCollections");
+  const excludeCollections = excludeCollectionsEl ? !!excludeCollectionsEl.checked : false;
+  return {
+    types,
+    titleQuery,
+    includeTags: includeTagsValue,
+    excludeTags: excludeTagsValue,
+    excludeCollections,
+  };
+}
+
+function buildSearchBody(startIndex){
+  const filters = readSearchFilters();
   const sortKey = getSelectedSortOptionKey();
   const sortConfig = getSortOptionConfig(sortKey);
   return {
@@ -748,11 +763,11 @@ function buildSearchBody(startIndex){
     apiKey: val("apiKey"),
     userId: document.getElementById("userId").value,
     libraryId: document.getElementById("libraryId").value,
-    types,
-    titleQuery,
-    includeTags: val("includeTags"),
-    excludeTags: val("excludeTags"),
-    excludeCollections: document.getElementById("excludeCollections").checked,
+    types: filters.types,
+    titleQuery: filters.titleQuery,
+    includeTags: filters.includeTags,
+    excludeTags: filters.excludeTags,
+    excludeCollections: filters.excludeCollections,
     startIndex,
     limit: searchState.limit,
     sortBy: sortConfig.sortBy,
@@ -1555,19 +1570,18 @@ if(btnExport){
     if(resultSummaryEl && SERVER_CONFIG_ERROR_MESSAGES.has(resultSummaryEl.textContent.trim())){
       setHtml("resultSummary", "");
     }
+    const filters = readSearchFilters();
     const body = {
       base: val("base"),
       apiKey: val("apiKey"),
       userId: document.getElementById("userId").value,
       libraryId: document.getElementById("libraryId").value,
-      types: splitTags(val("types")),
-      titleQuery: null,
-      excludeCollections: document.getElementById("excludeCollections").checked
+      types: filters.types,
+      titleQuery: filters.titleQuery,
+      includeTags: filters.includeTags,
+      excludeTags: filters.excludeTags,
+      excludeCollections: filters.excludeCollections
     };
-    const exportTitleQueryValue = val("titleQuery");
-    if(exportTitleQueryValue){
-      body.titleQuery = exportTitleQueryValue;
-    }
     const sortKey = getSelectedSortOptionKey();
     const sortConfig = getSortOptionConfig(sortKey);
     body.sortBy = sortConfig.sortBy;
