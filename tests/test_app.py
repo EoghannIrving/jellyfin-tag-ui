@@ -26,7 +26,11 @@ from jellyfin_tag_ui import create_app  # noqa: E402
 from jellyfin_tag_ui.config import COLLECTION_ITEM_TYPES  # noqa: E402
 from jellyfin_tag_ui.jellyfin_client import jf_post  # noqa: E402
 from jellyfin_tag_ui.services import tags as tags_module  # noqa: E402
-from jellyfin_tag_ui.services.tags import item_tags, jf_update_tags  # noqa: E402
+from jellyfin_tag_ui.services.tags import (  # noqa: E402
+    item_tags,
+    jf_update_tags,
+    normalize_tags,
+)
 
 app = create_app()
 
@@ -238,6 +242,16 @@ class ItemTagsTest(unittest.TestCase):
         }
 
         self.assertEqual(item_tags(item), ["Action", "Drama", "Mystery"])
+
+
+class NormalizeTagsTest(unittest.TestCase):
+    def test_normalizes_sequence_values(self):
+        values = ["Action", "Drama", "Action", "Sci-Fi", "sci-fi"]
+        self.assertEqual(normalize_tags(values), ["Action", "Drama", "Sci-Fi"])
+
+    def test_retains_first_casing_for_duplicates(self):
+        values = ["Mystery", "mystery", "MYSTERY", "thriller"]
+        self.assertEqual(normalize_tags(values), ["Mystery", "thriller"])
 
 
 class ApiTagsPaginationTest(unittest.TestCase):
