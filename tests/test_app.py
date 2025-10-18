@@ -218,6 +218,25 @@ class NormalizeItemTypesTest(unittest.TestCase):
         )
         self.assertEqual(result, ["Movie", "Series", "Episode", "Documentaries"])
 
+    def test_normalizes_common_type_names_case_insensitively(self):
+        result = normalize_item_types(
+            [
+                "movie",
+                "Series",
+                "AUDIOBOOK",
+                "tvchannel",
+                "CustomType",
+            ]
+        )
+        self.assertEqual(
+            result,
+            ["Movie", "Series", "AudioBook", "TvChannel", "CustomType"],
+        )
+
+    def test_deduplicates_types_using_casefold(self):
+        result = normalize_item_types(["Movie", "movie", "MUSICVIDEO", "musicvideo"])
+        self.assertEqual(result, ["Movie", "MusicVideo"])
+
 
 class PageItemsSortNormalizationTest(unittest.TestCase):
     def test_normalizes_sort_params_before_request(self):
