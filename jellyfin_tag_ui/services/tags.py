@@ -68,7 +68,14 @@ def normalize_tags(tag_string: Any) -> List[str]:
         return []
 
     raw_values: List[str] = _iter_tag_values(tag_string)
-    return sorted(list({tag for tag in raw_values if tag}), key=str.lower)
+    canonical: Dict[str, str] = {}
+    for tag in raw_values:
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key not in canonical:
+            canonical[key] = tag
+    return sorted(canonical.values(), key=str.casefold)
 
 
 def item_tags(item: Mapping[str, Any]) -> List[str]:
