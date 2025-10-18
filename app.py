@@ -652,6 +652,7 @@ def page_items(
     fields,
     start_index=0,
     limit=200,
+    search_term: Optional[str] = None,
     exclude_types: Optional[Sequence[str]] = None,
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
@@ -666,6 +667,10 @@ def page_items(
     }
     if normalized_types:
         params["IncludeItemTypes"] = ",".join(normalized_types)
+    if search_term is not None:
+        normalized_search = str(search_term).strip()
+        if normalized_search:
+            params["SearchTerm"] = normalized_search
     if exclude_types:
         params["ExcludeItemTypes"] = ",".join(exclude_types)
     if sort_by:
@@ -837,6 +842,8 @@ def api_items():
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
     exclude_collections = bool(data.get("excludeCollections"))
     excluded_types: Sequence[str] = COLLECTION_ITEM_TYPES if exclude_collections else ()
+    title_query_raw = data.get("titleQuery")
+    title_query = str(title_query_raw or "").strip()
     start = max(0, int(data.get("startIndex", 0)))
     limit = int(data.get("limit", 100))
     if limit > 100:
@@ -878,6 +885,7 @@ def api_items():
     matched_items: List[Dict[str, Any]] = []
     current_start = 0
     fetch_limit = limit if limit > 0 else 100
+    title_query_lower = title_query.casefold() if title_query else ""
 
     def good(item):
         tags = set([t.lower() for t in item_tags(item)])
@@ -885,6 +893,21 @@ def api_items():
             return False
         if exclude_tags and any(t.lower() in tags for t in exclude_tags):
             return False
+        if title_query_lower:
+            candidate_values = []
+            for key in ("Name", "SortName"):
+                value = item.get(key)
+                if value is None:
+                    continue
+                text = str(value)
+                if not text.strip():
+                    continue
+                candidate_values.append(text)
+            if not any(
+                title_query_lower in candidate.casefold()
+                for candidate in candidate_values
+            ):
+                return False
         return True
 
     while True:
@@ -897,6 +920,7 @@ def api_items():
             fields,
             current_start,
             fetch_limit,
+            search_term=title_query if title_query else None,
             exclude_types=excluded_types,
             sort_by=sort_by,
             sort_order=sort_order,

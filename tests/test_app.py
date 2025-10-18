@@ -293,6 +293,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -346,6 +347,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -387,6 +389,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -444,6 +447,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -479,6 +483,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -504,6 +509,109 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["sort_by"], "PremiereDate")
         self.assertEqual(captured["sort_order"], "Descending")
+
+    def test_api_items_forwards_title_query_to_page_items(self):
+        captured = {}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            captured["search_term"] = search_term
+            return {"Items": [], "TotalRecordCount": 0}
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "titleQuery": "  Example  ",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["search_term"], "Example")
+
+    def test_api_items_filters_by_title_query_locally(self):
+        responses = [
+            {
+                "Items": [
+                    {
+                        "Id": "alpha",
+                        "Type": "Movie",
+                        "Name": "Alpha",
+                        "SortName": "Alpha",
+                        "Path": "/alpha.mkv",
+                        "Tags": [],
+                        "TagItems": [],
+                    },
+                    {
+                        "Id": "gamma",
+                        "Type": "Movie",
+                        "Name": "Unrelated",
+                        "SortName": "Gamma Chronicles",
+                        "Path": "/gamma.mkv",
+                        "Tags": [],
+                        "TagItems": [],
+                    },
+                ],
+                "TotalRecordCount": 2,
+            },
+            {"Items": [], "TotalRecordCount": 2},
+        ]
+        call_index = {"value": 0}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            idx = call_index["value"]
+            call_index["value"] += 1
+            return responses[idx]
+
+        with patch("app.page_items", side_effect=fake_page_items):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "titleQuery": "  gaM  ",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["TotalMatchCount"], 1)
+        self.assertEqual(data["ReturnedCount"], 1)
+        self.assertEqual(len(data["Items"]), 1)
+        self.assertEqual(data["Items"][0]["Id"], "gamma")
 
     def test_api_items_includes_all_types_when_filter_blank(self):
         captured_params = []
@@ -566,6 +674,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -671,6 +780,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -751,6 +861,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -820,6 +931,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -885,6 +997,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -934,6 +1047,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -990,6 +1104,7 @@ class ApiItemsFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1064,6 +1179,7 @@ class ApiExportFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1115,6 +1231,7 @@ class ApiExportFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1202,6 +1319,7 @@ class ApiExportFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1257,6 +1375,7 @@ class ApiExportFieldsTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1307,6 +1426,7 @@ class ApiItemsCollectionExclusionTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1370,6 +1490,7 @@ class ApiExportCollectionExclusionTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1439,6 +1560,7 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
         ):
             captured_fields.append(fields)
@@ -1492,6 +1614,7 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
@@ -1548,6 +1671,7 @@ class ApiTagsAggregatedFallbackTest(unittest.TestCase):
             fields,
             start,
             limit,
+            search_term=None,
             exclude_types=None,
             sort_by=None,
             sort_order=None,
