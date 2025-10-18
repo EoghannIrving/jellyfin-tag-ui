@@ -108,40 +108,42 @@
             <span id="pageSummary" class="page-summary" role="status" aria-live="polite"></span>
           </div>
         </div>
-        <aside id="selectedItemsPanel" aria-label="Selected items">
-          <div class="selected-items-header">
-            <h3 class="selected-items-title">Selection</h3>
-            <div class="selected-items-summary-row">
-              <div id="selectionSummary" class="summary"></div>
-              <button id="btnClearSelection" type="button" class="selected-items-clear">Clear</button>
+        <div class="results-sidebar">
+          <aside id="selectedItemsPanel" aria-label="Selected items">
+            <div class="selected-items-header">
+              <h3 class="selected-items-title">Selection</h3>
+              <div class="selected-items-summary-row">
+                <div id="selectionSummary" class="summary"></div>
+                <button id="btnClearSelection" type="button" class="selected-items-clear">Clear</button>
+              </div>
             </div>
-          </div>
-          <ul id="selectedItemsList" class="selected-items-list"></ul>
-        </aside>
-        <aside class="apply-panel" aria-label="Apply changes to selected items">
-          <div class="apply-panel-header">
-            <h3 class="apply-panel-title">Apply Changes</h3>
-            <p class="apply-panel-description">Select items and specify tags to add or remove, then click Apply.</p>
-          </div>
-          <div class="apply-panel-body">
-            <label>Tags to Add
-              <div class="chip-input" id="applyAddField">
-                <div id="applyAddChips" class="chip-list" role="list"></div>
-                <input id="applyAdd" type="hidden" />
-              </div>
-            </label>
-            <label>Tags to Remove
-              <div class="chip-input" id="applyRemoveField">
-                <div id="applyRemoveChips" class="chip-list" role="list"></div>
-                <input id="applyRemove" type="hidden" />
-              </div>
-            </label>
-          </div>
-          <div class="apply-panel-footer">
-            <button id="btnApply">Apply to Selected</button>
-            <span id="applyStatus" aria-live="polite"></span>
-          </div>
-        </aside>
+            <ul id="selectedItemsList" class="selected-items-list"></ul>
+          </aside>
+          <aside class="apply-panel" aria-label="Apply changes to selected items">
+            <div class="apply-panel-header">
+              <h3 class="apply-panel-title">Apply Changes</h3>
+              <p class="apply-panel-description">Select items and specify tags to add or remove, then click Apply.</p>
+            </div>
+            <div class="apply-panel-body">
+              <label>Tags to Add
+                <div class="chip-input" id="applyAddField">
+                  <div id="applyAddChips" class="chip-list" role="list"></div>
+                  <input id="applyAdd" type="hidden" />
+                </div>
+              </label>
+              <label>Tags to Remove
+                <div class="chip-input" id="applyRemoveField">
+                  <div id="applyRemoveChips" class="chip-list" role="list"></div>
+                  <input id="applyRemove" type="hidden" />
+                </div>
+              </label>
+            </div>
+            <div class="apply-panel-footer">
+              <button id="btnApply">Apply to Selected</button>
+              <span id="applyStatus" aria-live="polite"></span>
+            </div>
+          </aside>
+        </div>
       </div>
     </section>
   </div>
