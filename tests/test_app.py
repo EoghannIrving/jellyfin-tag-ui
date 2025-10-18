@@ -303,6 +303,75 @@ class ApiTagsPaginationTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class ApiRequestValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_api_items_requires_user_id(self):
+        response = self.client.post(
+            "/api/items",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "libraryId": "lib",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "userId is required")
+
+    def test_api_items_requires_library_id(self):
+        response = self.client.post(
+            "/api/items",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "userId": "user",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "libraryId is required")
+
+    def test_api_export_requires_user_id(self):
+        response = self.client.post(
+            "/api/export",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "libraryId": "lib",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "userId is required")
+
+    def test_api_export_requires_library_id(self):
+        response = self.client.post(
+            "/api/export",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "userId": "user",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "libraryId is required")
+
+    def test_api_tags_requires_library_id(self):
+        response = self.client.post(
+            "/api/tags",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "libraryId is required")
+
+
 class ApiItemsFieldsTest(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()

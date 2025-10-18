@@ -112,8 +112,10 @@ def api_items():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
     base, error = validate_base(base, "/api/items", data.get("base"))
-    user_id = data.get("userId")
-    lib_id = data.get("libraryId")
+    raw_user_id = data.get("userId")
+    raw_lib_id = data.get("libraryId")
+    user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
+    lib_id = str(raw_lib_id).strip() if raw_lib_id is not None else ""
     include_types = normalize_item_types(data.get("types"))
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
@@ -146,8 +148,15 @@ def api_items():
     )
     if error is not None:
         return error
-    user_id = data["userId"]
-    lib_id = data["libraryId"]
+
+    if not user_id:
+        logger.warning("POST /api/items missing required userId (raw=%r)", raw_user_id)
+        return jsonify({"error": "userId is required"}), 400
+    if not lib_id:
+        logger.warning(
+            "POST /api/items missing required libraryId (raw=%r)", raw_lib_id
+        )
+        return jsonify({"error": "libraryId is required"}), 400
 
     matched_items = _filter_and_collect_items(
         base,
@@ -197,8 +206,10 @@ def api_export():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
     base, error = validate_base(base, "/api/export", data.get("base"))
-    user_id = data.get("userId")
-    lib_id = data.get("libraryId")
+    raw_user_id = data.get("userId")
+    raw_lib_id = data.get("libraryId")
+    user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
+    lib_id = str(raw_lib_id).strip() if raw_lib_id is not None else ""
     include_types = normalize_item_types(data.get("types"))
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
@@ -227,8 +238,14 @@ def api_export():
     )
     if error is not None:
         return error
-    user_id = data["userId"]
-    lib_id = data["libraryId"]
+    if not user_id:
+        logger.warning("POST /api/export missing required userId (raw=%r)", raw_user_id)
+        return jsonify({"error": "userId is required"}), 400
+    if not lib_id:
+        logger.warning(
+            "POST /api/export missing required libraryId (raw=%r)", raw_lib_id
+        )
+        return jsonify({"error": "libraryId is required"}), 400
 
     fields = _prepare_fields()
     start_index = 0
