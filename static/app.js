@@ -484,6 +484,8 @@ function buildSearchBody(startIndex){
   const typesInput = val("types");
   const parsedTypes = splitTags(typesInput);
   const types = parsedTypes.length > 0 ? parsedTypes : null;
+  const titleQueryValue = val("titleQuery");
+  const titleQuery = titleQueryValue ? titleQueryValue : null;
   const sortKey = getSelectedSortOptionKey();
   const sortConfig = getSortOptionConfig(sortKey);
   return {
@@ -492,6 +494,7 @@ function buildSearchBody(startIndex){
     userId: document.getElementById("userId").value,
     libraryId: document.getElementById("libraryId").value,
     types,
+    titleQuery,
     includeTags: val("includeTags"),
     excludeTags: val("excludeTags"),
     excludeCollections: document.getElementById("excludeCollections").checked,
@@ -505,11 +508,16 @@ function buildSearchBody(startIndex){
 
 function buildSearchQueryKey(body){
   const types = Array.isArray(body.types) && body.types.length > 0 ? body.types : null;
+  const titleQuery =
+    typeof body.titleQuery === "string" && body.titleQuery.trim()
+      ? body.titleQuery.trim()
+      : null;
   return JSON.stringify({
     base: body.base,
     userId: body.userId,
     libraryId: body.libraryId,
     types,
+    titleQuery,
     includeTags: body.includeTags,
     excludeTags: body.excludeTags,
     excludeCollections: body.excludeCollections,
@@ -1233,8 +1241,13 @@ if(btnExport){
       userId: document.getElementById("userId").value,
       libraryId: document.getElementById("libraryId").value,
       types: splitTags(val("types")),
+      titleQuery: null,
       excludeCollections: document.getElementById("excludeCollections").checked
     };
+    const exportTitleQueryValue = val("titleQuery");
+    if(exportTitleQueryValue){
+      body.titleQuery = exportTitleQueryValue;
+    }
     const sortKey = getSelectedSortOptionKey();
     const sortConfig = getSortOptionConfig(sortKey);
     body.sortBy = sortConfig.sortBy;
