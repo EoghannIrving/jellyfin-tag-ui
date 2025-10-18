@@ -712,6 +712,47 @@ class ApiItemsFieldsTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["limit"], 100)
 
+    def test_api_items_handles_invalid_pagination_values(self):
+        captured = {}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            captured["start"] = start
+            captured["limit"] = limit
+            return {"Items": [], "TotalRecordCount": 0}
+
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "startIndex": "not-a-number",
+                    "limit": "oops",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["start"], 0)
+        self.assertEqual(captured["limit"], 100)
+
     def test_api_items_passes_sort_parameters(self):
         captured = {}
 
