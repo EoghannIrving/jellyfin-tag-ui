@@ -1121,6 +1121,7 @@ def api_apply():
     # {
     #   "base": "...",
     #   "apiKey": "...",
+    #   "userId": "USER_ID",  # required for tag updates
     #   "changes": [
     #     {"id": "ITEMID", "add": ["Tag1","Tag2"], "remove": ["Old"]},
     #     ...
