@@ -105,6 +105,20 @@
             aria-live="polite"
           ></div>
           <div id="results"></div>
+          <template id="inlineTagEditorTemplate">
+            <form class="inline-tag-editor-form">
+              <div class="inline-tag-editor-field">
+                <label class="inline-tag-editor-label sr-only">Tags</label>
+                <input type="text" class="inline-tag-input" />
+                <div class="inline-tag-help">Separate tags with commas or semicolons.</div>
+              </div>
+              <div class="inline-tag-editor-actions">
+                <button type="submit" class="inline-tag-save">Save</button>
+                <button type="button" class="inline-tag-cancel">Cancel</button>
+              </div>
+              <div class="inline-tag-editor-status" role="status" aria-live="polite"></div>
+            </form>
+          </template>
           <div class="pagination-controls">
             <button id="btnPrevPage" type="button" disabled>Previous</button>
             <button id="btnNextPage" type="button" disabled>Next</button>

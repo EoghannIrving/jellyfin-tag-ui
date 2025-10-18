@@ -178,6 +178,8 @@ const userStatusEl = document.getElementById("userStatus");
 const libraryStatusEl = document.getElementById("libraryStatus");
 const resultSummaryEl = document.getElementById("resultSummary");
 const applyStatusEl = document.getElementById("applyStatus");
+const resultsContainer = document.getElementById("results");
+const inlineTagEditorTemplate = document.getElementById("inlineTagEditorTemplate");
 const searchState = {
   startIndex: 0,
   limit: 100,
@@ -193,6 +195,259 @@ const paginationControls = {
   next: document.getElementById("btnNextPage"),
   summary: document.getElementById("pageSummary"),
 };
+
+let inlineEditorState = null;
+
+function createInlineTagEditorForm(){
+  if(inlineTagEditorTemplate && inlineTagEditorTemplate.content){
+    const clone = inlineTagEditorTemplate.content.firstElementChild.cloneNode(true);
+    if(clone){
+      return clone;
+    }
+  }
+  const form = document.createElement("form");
+  form.className = "inline-tag-editor-form";
+  const field = document.createElement("div");
+  field.className = "inline-tag-editor-field";
+  const label = document.createElement("label");
+  label.className = "inline-tag-editor-label sr-only";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "inline-tag-input";
+  const hint = document.createElement("div");
+  hint.className = "inline-tag-help";
+  hint.textContent = "Separate tags with commas or semicolons.";
+  field.appendChild(label);
+  field.appendChild(input);
+  field.appendChild(hint);
+  form.appendChild(field);
+  const actions = document.createElement("div");
+  actions.className = "inline-tag-editor-actions";
+  const saveButton = document.createElement("button");
+  saveButton.type = "submit";
+  saveButton.className = "inline-tag-save";
+  saveButton.textContent = "Save";
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.className = "inline-tag-cancel";
+  cancelButton.textContent = "Cancel";
+  actions.appendChild(saveButton);
+  actions.appendChild(cancelButton);
+  form.appendChild(actions);
+  const status = document.createElement("div");
+  status.className = "inline-tag-editor-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  form.appendChild(status);
+  return form;
+}
+
+function updateInlineTagSummary(container, tags){
+  if(!container){ return; }
+  const summary = container.querySelector(".inline-tag-summary-text");
+  if(!summary){ return; }
+  const normalized = normalizeTagList(tags);
+  if(normalized.length){
+    summary.textContent = normalized.join("; ");
+    summary.classList.remove("inline-tag-empty");
+  } else {
+    summary.textContent = "No tags";
+    summary.classList.add("inline-tag-empty");
+  }
+}
+
+function closeInlineTagEditor(options = {}){
+  if(!inlineEditorState){ return; }
+  const {container, form, trigger} = inlineEditorState;
+  const shouldFocus = !!options.focusTrigger;
+  if(container){
+    container.classList.remove("is-editing");
+  }
+  if(form && container && container.contains(form)){
+    container.removeChild(form);
+  }
+  if(trigger){
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.removeAttribute("aria-controls");
+    if(shouldFocus && typeof trigger.focus === "function"){
+      trigger.focus();
+    }
+  }
+  inlineEditorState = null;
+}
+
+function getRowForItemId(id){
+  if(!id){ return null; }
+  const rows = Array.from(document.querySelectorAll("#results tbody tr"));
+  return rows.find((row) => row.dataset.id === id) || null;
+}
+
+function openInlineTagEditor(trigger){
+  if(!trigger){ return; }
+  const id = trigger.dataset.id;
+  if(!id){ return; }
+  const row = trigger.closest("tr");
+  if(!row){ return; }
+  if(inlineEditorState && inlineEditorState.activeId === id){
+    closeInlineTagEditor({focusTrigger: true});
+    return;
+  }
+  if(inlineEditorState){
+    closeInlineTagEditor({focusTrigger: false});
+  }
+  const container = trigger.closest(".inline-tag-control");
+  if(!container){ return; }
+  const storedItem = searchState.itemsById.get(id);
+  let item = storedItem;
+  if(!item){
+    const raw = row.dataset.item;
+    if(raw){
+      try{
+        item = JSON.parse(raw);
+      }catch(e){
+        item = null;
+      }
+    }
+  }
+  if(!item){ return; }
+  const originalTags = normalizeTagList(item.Tags || []);
+  const form = createInlineTagEditorForm();
+  if(!form){ return; }
+  const uniqueSuffix = Math.random().toString(36).slice(2);
+  const formId = `inlineTagEditor-${uniqueSuffix}`;
+  form.id = formId;
+  form.dataset.id = id;
+  const input = form.querySelector(".inline-tag-input");
+  const label = form.querySelector(".inline-tag-editor-label");
+  const hint = form.querySelector(".inline-tag-help");
+  const status = form.querySelector(".inline-tag-editor-status");
+  const actions = form.querySelector(".inline-tag-editor-actions");
+  if(label){
+    label.classList.add("sr-only");
+    const labelId = `inlineTagLabel-${uniqueSuffix}`;
+    label.id = labelId;
+    label.textContent = `Tags for ${item.Name || item.Id}`;
+    form.setAttribute("aria-labelledby", labelId);
+  }
+  if(input){
+    const inputId = `inlineTagInput-${uniqueSuffix}`;
+    input.id = inputId;
+    input.value = originalTags.join("; ");
+    input.setAttribute("aria-describedby", `inlineTagHelp-${uniqueSuffix}`);
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("placeholder", "Tag1; Tag2");
+  }
+  if(hint){
+    hint.id = `inlineTagHelp-${uniqueSuffix}`;
+  }
+  if(actions){
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", "Inline tag editor actions");
+  }
+  if(status){
+    status.textContent = "";
+  }
+  trigger.setAttribute("aria-expanded", "true");
+  trigger.setAttribute("aria-controls", formId);
+  container.classList.add("is-editing");
+  container.appendChild(form);
+  inlineEditorState = {
+    activeId: id,
+    container,
+    form,
+    input,
+    status,
+    trigger,
+    originalTags,
+    item,
+  };
+  if(input){
+    window.requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  }
+}
+
+async function submitInlineTagEdit(form){
+  if(!inlineEditorState || inlineEditorState.form !== form){ return; }
+  const validationMessage = validateServerConfig();
+  if(validationMessage){
+    if(inlineEditorState.status){
+      inlineEditorState.status.textContent = validationMessage;
+    }
+    return;
+  }
+  const {input, originalTags, status, activeId, item, container} = inlineEditorState;
+  if(!input){ return; }
+  const updatedTags = normalizeTagList(splitTags(input.value));
+  const originalSet = new Set(originalTags);
+  const updatedSet = new Set(updatedTags);
+  const add = updatedTags.filter(tag => !originalSet.has(tag));
+  const remove = originalTags.filter(tag => !updatedSet.has(tag));
+  if(add.length === 0 && remove.length === 0){
+    updateInlineTagSummary(container, updatedTags);
+    item.Tags = updatedTags;
+    searchState.itemsById.set(activeId, item);
+    if(searchState.selectedDetails.has(activeId)){
+      const detail = searchState.selectedDetails.get(activeId);
+      if(detail){
+        detail.tags = updatedTags.slice();
+      }
+    }
+    const row = getRowForItemId(activeId);
+    if(row){
+      row.dataset.item = JSON.stringify(item);
+    }
+    closeInlineTagEditor({focusTrigger: true});
+    return;
+  }
+  const base = val("base");
+  const apiKey = val("apiKey");
+  const userIdValue = userSelect ? userSelect.value : "";
+  const body = {
+    base,
+    apiKey,
+    userId: userIdValue,
+    changes: [{id: activeId, add, remove}],
+  };
+  if(status){
+    status.textContent = "Saving tags...";
+  }
+  form.setAttribute("aria-busy", "true");
+  const saveButton = form.querySelector(".inline-tag-save");
+  const cancelButton = form.querySelector(".inline-tag-cancel");
+  if(saveButton){ saveButton.disabled = true; }
+  if(cancelButton){ cancelButton.disabled = true; }
+  try{
+    await api("/api/apply", body);
+    item.Tags = updatedTags;
+    searchState.itemsById.set(activeId, item);
+    if(searchState.selectedDetails.has(activeId)){
+      const detail = searchState.selectedDetails.get(activeId);
+      if(detail){
+        detail.tags = updatedTags.slice();
+      }
+    }
+    const row = getRowForItemId(activeId);
+    if(row){
+      row.dataset.item = JSON.stringify(item);
+    }
+    updateInlineTagSummary(container, updatedTags);
+    if(status){
+      status.textContent = "Tags updated.";
+    }
+    closeInlineTagEditor({focusTrigger: true});
+  }catch(e){
+    if(status){
+      status.textContent = `Error updating tags: ${e.message}`;
+    }
+  }finally{
+    form.removeAttribute("aria-busy");
+    if(saveButton){ saveButton.disabled = false; }
+    if(cancelButton){ cancelButton.disabled = false; }
+  }
+}
 
 function checkbox(item){
   const checked = searchState.selectedIds.has(item.Id) ? " checked" : "";
@@ -603,10 +858,13 @@ function applySelectionFromCheckbox(cb){
   const row = cb.closest("tr");
   if(cb.checked){
     searchState.selectedIds.add(id);
+    const item = searchState.itemsById.get(id);
+    const tags = item ? normalizeTagList(item.Tags || []) : [];
     searchState.selectedDetails.set(id, {
       id,
       name: cb.dataset.name || "",
       type: cb.dataset.type || "",
+      tags,
     });
     if(row){
       row.classList.add("is-selected");
@@ -622,6 +880,7 @@ function applySelectionFromCheckbox(cb){
 }
 
 function renderResults(items){
+  closeInlineTagEditor({focusTrigger: false});
   if(!items.length){
     setHtml("results", '<div class="results-empty">No items found.</div>');
     const selAll = document.getElementById("selAll");
@@ -645,7 +904,12 @@ function renderResults(items){
     const safeType = escapeHtml(it.Type || "");
     const safeName = escapeHtml(it.Name || "");
     const safePath = escapeHtml(it.Path || "");
-    const safeTags = escapeHtml((it.Tags || []).join("; "));
+    const normalizedTags = normalizeTagList(it.Tags || []);
+    const tagsHtml = normalizedTags.length
+      ? `<span class="inline-tag-summary-text">${escapeHtml(normalizedTags.join("; "))}</span>`
+      : '<span class="inline-tag-summary-text inline-tag-empty">No tags</span>';
+    const editLabelBase = it.Name || it.Id || "item";
+    const safeEditLabel = escapeHtml(`Edit tags for ${editLabelBase}`);
     const releaseLabel = escapeHtml(formatReleaseLabel(it));
     return `
     <tr${attrString}>
@@ -654,7 +918,12 @@ function renderResults(items){
       <td>${safeName}</td>
       <td>${releaseLabel}</td>
       <td>${safePath}</td>
-      <td>${safeTags}</td>
+      <td class="result-tags">
+        <div class="inline-tag-control" data-id="${safeId}">
+          <div class="inline-tag-summary" aria-live="polite">${tagsHtml}</div>
+          <button type="button" class="inline-tag-edit" data-id="${safeId}" aria-label="${safeEditLabel}" aria-haspopup="dialog" aria-expanded="false">Edit</button>
+        </div>
+      </td>
     </tr>
   `;
   }).join("");
@@ -678,11 +947,31 @@ function renderResults(items){
       const id = cb.dataset.id;
       if(id){
         searchState.selectedIds.add(id);
+        const item = searchState.itemsById.get(id) || items.find(candidate => candidate.Id === id);
+        const tags = item ? normalizeTagList(item.Tags || []) : [];
         searchState.selectedDetails.set(id, {
           id,
           name: cb.dataset.name || "",
           type: cb.dataset.type || "",
+          tags,
         });
+      }
+    }
+    if(row){
+      const id = cb.dataset.id;
+      if(id){
+        const item = searchState.itemsById.get(id) || items.find(candidate => candidate.Id === id);
+        if(item){
+          try{
+            row.dataset.item = JSON.stringify(item);
+          }catch(e){
+            row.dataset.item = "";
+          }
+          const control = row.querySelector(".inline-tag-control");
+          if(control){
+            updateInlineTagSummary(control, item.Tags || []);
+          }
+        }
       }
     }
     cb.addEventListener("change", () => {
@@ -728,6 +1017,37 @@ function updatePaginationControls(returned, filteredTotal){
       summary.textContent = `${start}-${end} of ${filteredTotal}`;
     }
   }
+}
+
+if(resultsContainer){
+  resultsContainer.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if(!target){ return; }
+    const editButton = target.closest(".inline-tag-edit");
+    if(editButton){
+      event.preventDefault();
+      openInlineTagEditor(editButton);
+      return;
+    }
+    const cancelButton = target.closest(".inline-tag-cancel");
+    if(cancelButton && inlineEditorState){
+      event.preventDefault();
+      closeInlineTagEditor({focusTrigger: true});
+    }
+  });
+  resultsContainer.addEventListener("submit", (event) => {
+    if(event.target.matches(".inline-tag-editor-form")){
+      event.preventDefault();
+      submitInlineTagEdit(event.target);
+    }
+  });
+  resultsContainer.addEventListener("keydown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if(event.key === "Escape" && target && inlineEditorState && inlineEditorState.form && inlineEditorState.form.contains(target)){
+      event.preventDefault();
+      closeInlineTagEditor({focusTrigger: true});
+    }
+  });
 }
 
 if(btnUsers){
