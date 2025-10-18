@@ -4,7 +4,7 @@ import os
 import sys
 import types
 import unittest
-from typing import Any, Dict
+from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
 import requests  # type: ignore[import-untyped]
@@ -173,6 +173,108 @@ class ItemTagsTest(unittest.TestCase):
         }
 
         self.assertEqual(item_tags(item), ["Action", "Drama", "Mystery"])
+
+
+class ApiTagsPaginationTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_user_endpoint_accumulates_multiple_pages(self):
+        payloads = [
+            {
+                "Items": [
+                    {"Name": "Action", "ItemCount": 2},
+                    {"Name": "Drama", "ItemCount": 1},
+                ],
+                "TotalRecordCount": 3,
+            },
+            {
+                "Items": [
+                    {"Name": "Comedy", "ItemCount": 4},
+                ],
+                "TotalRecordCount": 3,
+            },
+        ]
+        calls: List[Dict[str, Any]] = []
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            call_index = len(calls)
+            calls.append({"url": url, "params": dict(params or {})})
+            self.assertTrue(url.endswith("/Users/user/Items/Tags"))
+            self.assertEqual(params.get("Limit"), app_module.TAG_PAGE_LIMIT)
+            expected_start = 0 if call_index == 0 else 2
+            self.assertEqual(params.get("StartIndex"), expected_start)
+            try:
+                return payloads[call_index]
+            except IndexError as exc:  # pragma: no cover - defensive
+                raise AssertionError("Unexpected pagination request") from exc
+
+        with patch("app.TAG_PAGE_LIMIT", 2), patch(
+            "app.jf_get", side_effect=fake_jf_get
+        ):
+            response = self.client.post(
+                "/api/tags",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "token",
+                    "libraryId": "lib",
+                    "userId": "user",
+                },
+            )
+
+        data = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data["source"], "users-items-tags")
+        self.assertEqual(data["tags"], ["Comedy", "Action", "Drama"])
+        self.assertEqual(len(calls), 2)
+
+    def test_global_endpoint_accumulates_multiple_pages(self):
+        payloads = [
+            {
+                "Items": [
+                    {"Name": "Alpha", "ItemCount": 5},
+                    {"Name": "Beta", "ItemCount": 3},
+                ],
+                "TotalRecordCount": 3,
+            },
+            {
+                "Items": [
+                    {"Name": "Gamma", "ItemCount": 1},
+                ],
+                "TotalRecordCount": 3,
+            },
+        ]
+        calls: List[Dict[str, Any]] = []
+
+        def fake_jf_get(url, api_key, params=None, timeout=30):
+            call_index = len(calls)
+            calls.append({"url": url, "params": dict(params or {})})
+            self.assertTrue(url.endswith("/Items/Tags"))
+            self.assertEqual(params.get("Limit"), app_module.TAG_PAGE_LIMIT)
+            expected_start = 0 if call_index == 0 else 2
+            self.assertEqual(params.get("StartIndex"), expected_start)
+            try:
+                return payloads[call_index]
+            except IndexError as exc:  # pragma: no cover - defensive
+                raise AssertionError("Unexpected pagination request") from exc
+
+        with patch("app.TAG_PAGE_LIMIT", 2), patch(
+            "app.jf_get", side_effect=fake_jf_get
+        ):
+            response = self.client.post(
+                "/api/tags",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "token",
+                    "libraryId": "lib",
+                },
+            )
+
+        data = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data["source"], "items-tags")
+        self.assertEqual(data["tags"], ["Alpha", "Beta", "Gamma"])
+        self.assertEqual(len(calls), 2)
 
 
 class ApiItemsFieldsTest(unittest.TestCase):

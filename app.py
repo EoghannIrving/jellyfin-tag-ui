@@ -23,6 +23,9 @@ app = Flask(__name__)
 
 COLLECTION_ITEM_TYPES: Tuple[str, ...] = ("BoxSet", "CollectionFolder")
 
+TAG_PAGE_LIMIT = 200
+MAX_TAG_PAGES = 100
+
 DEFAULT_SORT_BY = "SortName"
 DEFAULT_SORT_ORDER = "Ascending"
 SORTABLE_FIELDS: Tuple[str, ...] = ("SortName", "PremiereDate")
@@ -441,6 +444,82 @@ def _sorted_tag_names(
     return [name for name, _ in sortable]
 
 
+def _merge_tag_counts(
+    aggregate_counts: Counter[str],
+    aggregate_canonical: Dict[str, str],
+    new_counts: Mapping[str, int],
+    new_canonical: Mapping[str, str],
+) -> None:
+    for key, count in new_counts.items():
+        if count <= 0:
+            continue
+        aggregate_counts[key] += count
+    for key, value in new_canonical.items():
+        aggregate_canonical.setdefault(key, value)
+
+
+class TagPaginationError(RuntimeError):
+    """Raised when tag pagination cannot complete."""
+
+
+def _collect_paginated_tags(
+    url: str,
+    api_key: str,
+    base_params: Mapping[str, Any],
+) -> Tuple[Counter[str], Dict[str, str]]:
+    start_index = 0
+    aggregate_counts: Counter[str] = Counter()
+    canonical_names: Dict[str, str] = {}
+    previous_signature: Optional[Tuple[Tuple[Any, ...], ...]] = None
+    page_number = 0
+
+    while True:
+        params = dict(base_params)
+        params["Limit"] = TAG_PAGE_LIMIT
+        params["StartIndex"] = start_index
+        response = jf_get(url, api_key, params=params)
+        items = response.get("Items", [])
+        if not isinstance(items, Sequence):
+            raise TagPaginationError("Tag endpoint returned unexpected payload")
+
+        signature: Tuple[Tuple[Any, ...], ...] = tuple(
+            (
+                entry.get("Name"),
+                _normalized_count(entry.get("ItemCount")),
+                _normalized_count(entry.get("Count")),
+            )
+            for entry in items
+        )
+        if previous_signature is not None and signature == previous_signature:
+            raise TagPaginationError("Tag pagination appears capped by server limit")
+        previous_signature = signature
+
+        if not items:
+            break
+
+        page_counts, page_canonical = _tag_counts_from_endpoint_items(items)
+        _merge_tag_counts(
+            aggregate_counts, canonical_names, page_counts, page_canonical
+        )
+
+        page_size = len(items)
+        start_index += page_size
+        page_number += 1
+
+        if page_number >= MAX_TAG_PAGES:
+            raise TagPaginationError("Exceeded maximum tag pagination requests")
+
+        total_count = _normalized_count(
+            response.get("TotalRecordCount") or response.get("TotalCount")
+        )
+        if page_size < TAG_PAGE_LIMIT:
+            break
+        if total_count is not None and start_index >= total_count:
+            break
+
+    return aggregate_counts, canonical_names
+
+
 def _tag_counts_from_endpoint_items(
     items: Sequence[Mapping[str, Any]],
 ) -> Tuple[Counter[str], Dict[str, str]]:
@@ -654,19 +733,17 @@ def api_tags():
         return error
     lib_id = data["libraryId"]
 
+    params = {"ParentId": lib_id, "Recursive": "true"}
+    if include_types:
+        params["IncludeItemTypes"] = ",".join(include_types)
+
     # 1) Preferred: user-scoped tag endpoint (some Jellyfin builds require this)
     if user_id:
         try:
-            params = {"ParentId": lib_id, "Recursive": "true"}
-            if include_types:
-                params["IncludeItemTypes"] = ",".join(include_types)
-            res = jf_get(
+            tag_counts, canonical_names = _collect_paginated_tags(
                 f"{base}/Users/{user_id}/Items/Tags",
                 api_key,
-                params=params,
-            )
-            tag_counts, canonical_names = _tag_counts_from_endpoint_items(
-                res.get("Items", [])
+                params,
             )
             names = _sorted_tag_names(tag_counts, canonical_names)
             logger.info(
@@ -680,13 +757,10 @@ def api_tags():
 
     # 2) Legacy/global endpoint (works on some servers)
     try:
-        res = jf_get(
+        tag_counts, canonical_names = _collect_paginated_tags(
             f"{base}/Items/Tags",
             api_key,
-            params={"ParentId": lib_id, "Recursive": "true"},
-        )
-        tag_counts, canonical_names = _tag_counts_from_endpoint_items(
-            res.get("Items", [])
+            params,
         )
         names = _sorted_tag_names(tag_counts, canonical_names)
         logger.info("/api/tags returning %d tags via items-tags endpoint", len(names))
