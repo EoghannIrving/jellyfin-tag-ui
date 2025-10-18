@@ -24,10 +24,16 @@ if "dotenv" not in sys.modules:
     sys.modules["dotenv"] = mock_dotenv
 
 from jellyfin_tag_ui import create_app  # noqa: E402
-from jellyfin_tag_ui.config import COLLECTION_ITEM_TYPES  # noqa: E402
+from jellyfin_tag_ui.config import (  # noqa: E402
+    COLLECTION_ITEM_TYPES,
+    DEFAULT_SORT_BY,
+)
 from jellyfin_tag_ui.jellyfin_client import jf_post  # noqa: E402
 from jellyfin_tag_ui.services import tags as tags_module  # noqa: E402
-from jellyfin_tag_ui.services.items import normalize_item_types  # noqa: E402
+from jellyfin_tag_ui.services.items import (  # noqa: E402
+    normalize_item_types,
+    page_items,
+)
 from jellyfin_tag_ui.services.tags import (  # noqa: E402
     item_tags,
     jf_update_tags,
@@ -211,6 +217,28 @@ class NormalizeItemTypesTest(unittest.TestCase):
             ["Movie", ["Series,Episode", None], " Documentaries "]
         )
         self.assertEqual(result, ["Movie", "Series", "Episode", "Documentaries"])
+
+
+class PageItemsSortNormalizationTest(unittest.TestCase):
+    def test_normalizes_sort_params_before_request(self):
+        with patch(
+            "jellyfin_tag_ui.services.items.jf_get", return_value={}
+        ) as mock_get:
+            page_items(
+                "http://example.com",
+                "token",
+                user_id="user",
+                lib_id="library",
+                include_types=[],
+                fields=["Name"],
+                sort_by="InvalidField",
+                sort_order="desc",
+            )
+
+        self.assertTrue(mock_get.called)
+        _, _, params = mock_get.call_args.args
+        self.assertEqual(params["SortBy"], DEFAULT_SORT_BY)
+        self.assertEqual(params["SortOrder"], "Descending")
 
 
 class FrontendUtilsTest(unittest.TestCase):
