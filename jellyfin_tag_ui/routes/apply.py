@@ -7,6 +7,9 @@ from typing import Any, Dict, List
 
 from flask import Blueprint, jsonify, request
 
+import requests  # type: ignore[import-untyped]
+
+from ..jellyfin_client import format_http_error
 from ..services.jellyfin import resolve_jellyfin_config, validate_base
 from ..services.tags import jf_update_tags
 
@@ -72,6 +75,9 @@ def api_apply():
             result["added"] = adds
             result["removed"] = removes
             result["tags"] = final_tags
+        except requests.HTTPError as exc:
+            logger.exception("Failed to update tags for item %s", item_id)
+            result["errors"].append(format_http_error(exc))
         except Exception as exc:  # pragma: no cover - network failure path
             logger.exception("Failed to update tags for item %s", item_id)
             result["errors"].append(str(exc))
