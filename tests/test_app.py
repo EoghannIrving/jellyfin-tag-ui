@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import subprocess
 import sys
 import types
 import unittest
@@ -197,6 +198,30 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         mock_put.assert_called_once()
         payload = mock_put.call_args.kwargs["json"]
         self.assertEqual(payload["Tags"], [])
+
+
+class FrontendUtilsTest(unittest.TestCase):
+    def test_option_list_escapes_values(self):
+        script = """
+import { optionList } from './static/js/utils.js';
+const items = [{ Id: 'abc" onfocus="alert(1)', Name: '<script>alert(1)</script>' }];
+const result = optionList(items, 'Id', 'Name');
+console.log(result);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+        )
+        output = completed.stdout.strip()
+        self.assertIn(
+            '<option value="abc&quot; onfocus=&quot;alert(1)">',
+            output,
+        )
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", output)
+        self.assertNotIn("<script>", output)
 
 
 class JellyfinClientJsonParsingTest(unittest.TestCase):

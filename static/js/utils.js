@@ -20,8 +20,8 @@ export function splitTags(input) {
 export function optionList(arr, valueKey, textKey) {
   return arr
     .map((item) => {
-      const value = item[valueKey];
-      const text = item[textKey] || item[valueKey];
+      const value = escapeHtml(item[valueKey]);
+      const text = escapeHtml(item[textKey] ?? item[valueKey]);
       return `<option value="${value}">${text}</option>`;
     })
     .join("");
