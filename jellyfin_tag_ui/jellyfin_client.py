@@ -14,6 +14,84 @@ def jf_headers(api_key: str) -> Dict[str, str]:
     return {"X-Emby-Token": api_key}
 
 
+def _extract_error_details(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return ""
+
+    if not isinstance(payload, Mapping):
+        return ""
+
+    details = []
+    seen = set()
+
+    def add_detail(value: Any, prefix: str = "") -> None:
+        if value is None:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        detail = f"{prefix}{text}" if prefix else text
+        if detail in seen:
+            return
+        seen.add(detail)
+        details.append(detail)
+
+    add_detail(payload.get("Message") or payload.get("message"))
+    error_code = payload.get("ErrorCode") or payload.get("errorCode")
+    if error_code is not None:
+        add_detail(error_code, "ErrorCode=")
+
+    response_status = payload.get("ResponseStatus") or payload.get("responseStatus")
+    if isinstance(response_status, Mapping):
+        add_detail(response_status.get("Message") or response_status.get("message"))
+        rs_error_code = response_status.get("ErrorCode") or response_status.get(
+            "errorCode"
+        )
+        if rs_error_code is not None:
+            add_detail(rs_error_code, "ResponseStatus.ErrorCode=")
+    elif response_status:
+        add_detail(response_status, "ResponseStatus=")
+
+    return "; ".join(details)
+
+
+def format_http_error(error: requests.HTTPError) -> str:
+    response = getattr(error, "response", None)
+    base_message = str(error).strip()
+
+    if response is None:
+        return base_message or "HTTP request failed"
+
+    details = _extract_error_details(response)
+    if details:
+        if base_message:
+            return f"{base_message} - {details}"
+        status_code = getattr(response, "status_code", "")
+        reason = getattr(response, "reason", "") or ""
+        url = getattr(response, "url", "") or ""
+        status_message = f"HTTP {status_code}" if status_code else "HTTP request failed"
+        if reason:
+            status_message = f"{status_message} {reason}"
+        if url:
+            status_message = f"{status_message} for url: {url}"
+        return f"{status_message} - {details}" if status_message else details
+
+    return base_message or "HTTP request failed"
+
+
+def _raise_for_status(response: requests.Response) -> None:
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        raise requests.HTTPError(
+            format_http_error(error),
+            response=error.response,
+            request=getattr(error, "request", None),
+        ) from error
+
+
 def jf_get(
     url: str,
     api_key: str,
@@ -24,7 +102,7 @@ def jf_get(
     response = requests.get(
         url, headers=jf_headers(api_key), params=params or {}, timeout=timeout
     )
-    response.raise_for_status()
+    _raise_for_status(response)
     return response.json()
 
 
@@ -51,7 +129,7 @@ def jf_post(
         json=json,
         timeout=timeout,
     )
-    response.raise_for_status()
+    _raise_for_status(response)
     return _parse_json_response(response)
 
 
@@ -70,7 +148,7 @@ def jf_put(
         json=json,
         timeout=timeout,
     )
-    response.raise_for_status()
+    _raise_for_status(response)
     return _parse_json_response(response)
 
 

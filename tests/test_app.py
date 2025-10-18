@@ -2049,6 +2049,45 @@ class ApiApplyUpdateTest(unittest.TestCase):
         self.assertEqual(entry.get("removed"), [])
         self.assertEqual(entry.get("errors"), ["boom"])
 
+    def test_reports_jellyfin_http_error_message(self):
+        error_payload = {
+            "Message": "Tag update failed",
+            "ErrorCode": "InvalidTag",
+            "ResponseStatus": {"Message": "The tag value is invalid."},
+        }
+        error_response = DummyResponse(status_code=400, json_data=error_payload)
+        error_response.reason = "Bad Request"
+        error_response.url = "http://example.com/Items/item1"
+        http_error = requests.HTTPError(
+            "400 Client Error: Bad Request for url: http://example.com/Items/item1"
+        )
+        http_error.response = error_response
+
+        payload = {
+            "base": "http://example.com",
+            "apiKey": "dummy",
+            "userId": "user123",
+            "changes": [
+                {"id": "item1", "add": ["TagA"], "remove": []},
+            ],
+        }
+
+        with patch(
+            "jellyfin_tag_ui.routes.apply.jf_update_tags", side_effect=http_error
+        ):
+            response = self.client.post("/api/apply", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data.get("updated", [])), 1)
+        entry = data["updated"][0]
+        self.assertEqual(entry.get("added"), [])
+        self.assertEqual(entry.get("removed"), [])
+        errors = entry.get("errors") or []
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Tag update failed", errors[0])
+        self.assertIn("InvalidTag", errors[0])
+
 
 class ApiTagsOrderingTest(unittest.TestCase):
     def setUp(self):
