@@ -6,13 +6,40 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..config import DEFAULT_SORT_BY, DEFAULT_SORT_ORDER, SORTABLE_FIELDS, SORT_ORDERS
-
 from ..jellyfin_client import jf_get
+
+
+_KNOWN_ITEM_TYPES = {
+    "movie": "Movie",
+    "series": "Series",
+    "season": "Season",
+    "episode": "Episode",
+    "audio": "Audio",
+    "audiobook": "AudioBook",
+    "musicvideo": "MusicVideo",
+    "musicalbum": "MusicAlbum",
+    "musicartist": "MusicArtist",
+    "playlist": "Playlist",
+    "boxset": "BoxSet",
+    "collectionfolder": "CollectionFolder",
+    "folder": "Folder",
+    "photo": "Photo",
+    "photoalbum": "PhotoAlbum",
+    "book": "Book",
+    "video": "Video",
+    "program": "Program",
+    "recording": "Recording",
+    "tvchannel": "TvChannel",
+    "trailer": "Trailer",
+}
 
 
 def normalize_item_types(raw_types: Any) -> List[str]:
     if raw_types is None:
         return []
+
+    seen: Set[str] = set()
+    normalized: List[str] = []
 
     def _iter_candidates(value: Any) -> Iterable[str]:
         if isinstance(value, str):
@@ -31,7 +58,16 @@ def normalize_item_types(raw_types: Any) -> List[str]:
         if text:
             yield text
 
-    return list(_iter_candidates(raw_types))
+    for candidate in _iter_candidates(raw_types):
+        key = candidate.casefold()
+        canonical = _KNOWN_ITEM_TYPES.get(key, candidate)
+        canonical_key = canonical.casefold()
+        if canonical_key in seen:
+            continue
+        seen.add(canonical_key)
+        normalized.append(canonical)
+
+    return normalized
 
 
 def normalize_sort_params(sort_by: Any, sort_order: Any) -> Tuple[str, str]:
