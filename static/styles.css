@@ -6,6 +6,8 @@ h1{ font-size:28px; margin-bottom:16px; }
 .card{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; margin:16px 0; box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
 .grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
 .row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+.remember-option{ display:flex; flex-direction:column; gap:6px; margin-top:12px; }
+.remember-hint{ margin:0; font-size:12px; color:var(--muted); }
 .tag-controls{ align-items:stretch; }
 .tag-panel{ flex:1 1 380px; display:flex; flex-direction:column; background:#0f172a; border:1px solid var(--line); border-radius:12px; min-height:220px; max-height:360px; position:relative; overflow:hidden; }
 .tag-panel-header{ position:sticky; top:0; display:grid; gap:4px; padding:12px; background:#0f172a; border-bottom:1px solid var(--line); z-index:1; }

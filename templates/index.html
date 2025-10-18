@@ -20,6 +20,13 @@
           <input id="apiKey" placeholder="JELLYFIN_API_KEY" value="{{ api_key }}" />
         </label>
       </div>
+      <div class="remember-option">
+        <label class="checkbox remember-checkbox">
+          <input type="checkbox" id="rememberDetails" />
+          Remember these details on this device
+        </label>
+        <p class="remember-hint">Stores the base URL and API key in this browser. Avoid using this on shared or public devices.</p>
+      </div>
       <div class="row">
         <button id="btnUsers">Load Users</button>
         <span id="userStatus" class="status" aria-live="polite">Click Load Users to fetch options.</span>
