@@ -201,10 +201,12 @@ def page_items(
             params["SearchTerm"] = normalized_search
     if exclude_types:
         params["ExcludeItemTypes"] = ",".join(exclude_types)
-    if sort_by:
-        params["SortBy"] = sort_by
-    if sort_order:
-        params["SortOrder"] = sort_order
+    if sort_by is not None or sort_order is not None:
+        normalized_sort_by, normalized_sort_order = normalize_sort_params(
+            sort_by, sort_order
+        )
+        params["SortBy"] = normalized_sort_by
+        params["SortOrder"] = normalized_sort_order
     endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
     return jf_get(endpoint, api_key, params)
 
