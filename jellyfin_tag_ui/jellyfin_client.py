@@ -107,9 +107,12 @@ def jf_get(
 
 
 def _parse_json_response(response: requests.Response) -> Dict[str, Any]:
-    if response.text and response.headers.get("content-type", "").startswith(
-        "application/json"
-    ):
+    content_type = response.headers.get("content-type", "")
+    if isinstance(content_type, str):
+        normalized_content_type = content_type.lower()
+    else:
+        normalized_content_type = ""
+    if response.text and normalized_content_type.startswith("application/json"):
         return response.json()
     return {}
 
