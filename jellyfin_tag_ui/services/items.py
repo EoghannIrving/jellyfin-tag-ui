@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..config import DEFAULT_SORT_BY, DEFAULT_SORT_ORDER, SORTABLE_FIELDS, SORT_ORDERS
+from ..config import JELLYFIN_LONG_TIMEOUT
 from ..jellyfin_client import jf_get
 
 
@@ -244,7 +245,7 @@ def page_items(
         params["SortBy"] = normalized_sort_by
         params["SortOrder"] = normalized_sort_order
     endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
-    return jf_get(endpoint, api_key, params)
+    return jf_get(endpoint, api_key, params, timeout=JELLYFIN_LONG_TIMEOUT)
 
 
 def _tags_for_item(item: Mapping[str, Any]) -> List[str]:
