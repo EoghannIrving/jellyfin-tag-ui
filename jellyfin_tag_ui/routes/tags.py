@@ -71,4 +71,10 @@ def api_tags():
         if entry and entry.error
         else "Gathering tags, please try again shortly."
     )
+    logger.info(
+        "POST /api/tags cache pending for lib=%s user=%s include_types=%s",
+        lib_id,
+        user_id,
+        include_types,
+    )
     return jsonify({"status": "pending", "message": message}), 202

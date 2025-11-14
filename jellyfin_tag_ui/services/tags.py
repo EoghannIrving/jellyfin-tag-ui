@@ -204,8 +204,15 @@ def _schedule_tag_refresh(
         if entry.loading:
             return entry
         entry.loading = True
+        logger.info(
+            "Scheduling tag refresh for lib=%s user=%s include_types=%s",
+            lib_id,
+            user_id,
+            include_types,
+        )
 
     def _worker() -> None:
+        logger.info("Beginning tag discovery for lib=%s user=%s", lib_id, user_id)
         try:
             tags, source = discover_tags(base, api_key, user_id, lib_id, include_types)
         except Exception as exc:
@@ -213,13 +220,20 @@ def _schedule_tag_refresh(
             logger.exception(
                 "Tag refresh failed for library=%s user=%s", lib_id, user_id
             )
-            with _TAG_CACHE_LOCK:
-                entry.tags = []
-                entry.source = "error"
-                entry.error = detail
-                entry.updated = time.time()
-                entry.loading = False
+        with _TAG_CACHE_LOCK:
+            entry.tags = []
+            entry.source = "error"
+            entry.error = detail
+            entry.updated = time.time()
+            entry.loading = False
             return
+        logger.info(
+            "Tag discovery succeeded for lib=%s user=%s (%d tags via %s)",
+            lib_id,
+            user_id,
+            len(tags),
+            source,
+        )
         with _TAG_CACHE_LOCK:
             entry.tags = tags
             entry.source = source
@@ -429,6 +443,12 @@ def discover_tags(
     lib_id: str,
     include_types: Sequence[str],
 ) -> Tuple[List[str], str]:
+    logger.debug(
+        "Discovering tags for lib=%s user=%s include_types=%s",
+        lib_id,
+        user_id,
+        include_types,
+    )
     params: Dict[str, Any] = {"ParentId": lib_id, "Recursive": "true"}
     if include_types:
         params["IncludeItemTypes"] = ",".join(include_types)
