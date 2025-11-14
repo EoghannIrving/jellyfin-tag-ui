@@ -27,3 +27,4 @@ pip-wheel-metadata/
 
 # Docker
 *.log
+logs/
