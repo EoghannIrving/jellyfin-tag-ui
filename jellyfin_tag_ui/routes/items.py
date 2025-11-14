@@ -25,6 +25,26 @@ bp = Blueprint("items", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_start_index(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
+
+
+def _sanitize_limit(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 100
+    if parsed > 100:
+        return 100
+    if parsed < 0:
+        return 0
+    return parsed
+
+
 def _prepare_fields() -> List[str]:
     return [
         "TagItems",
@@ -112,8 +132,10 @@ def api_items():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
     base, error = validate_base(base, "/api/items", data.get("base"))
-    user_id = data.get("userId")
-    lib_id = data.get("libraryId")
+    raw_user_id = data.get("userId")
+    raw_lib_id = data.get("libraryId")
+    user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
+    lib_id = str(raw_lib_id).strip() if raw_lib_id is not None else ""
     include_types = normalize_item_types(data.get("types"))
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
@@ -123,12 +145,8 @@ def api_items():
     title_query = str(title_query_raw or "").strip()
     include_tag_keys: Set[str] = {tag.casefold() for tag in include_tags}
     exclude_tag_keys: Set[str] = {tag.casefold() for tag in exclude_tags}
-    start = max(0, int(data.get("startIndex", 0)))
-    limit = int(data.get("limit", 100))
-    if limit > 100:
-        limit = 100
-    if limit < 0:
-        limit = 0
+    start = _sanitize_start_index(data.get("startIndex", 0))
+    limit = _sanitize_limit(data.get("limit", 100))
     sort_by, sort_order = normalize_sort_params(
         data.get("sortBy"), data.get("sortOrder")
     )
@@ -146,8 +164,15 @@ def api_items():
     )
     if error is not None:
         return error
-    user_id = data["userId"]
-    lib_id = data["libraryId"]
+
+    if not user_id:
+        logger.warning("POST /api/items missing required userId (raw=%r)", raw_user_id)
+        return jsonify({"error": "userId is required"}), 400
+    if not lib_id:
+        logger.warning(
+            "POST /api/items missing required libraryId (raw=%r)", raw_lib_id
+        )
+        return jsonify({"error": "libraryId is required"}), 400
 
     matched_items = _filter_and_collect_items(
         base,
@@ -197,8 +222,10 @@ def api_export():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
     base, error = validate_base(base, "/api/export", data.get("base"))
-    user_id = data.get("userId")
-    lib_id = data.get("libraryId")
+    raw_user_id = data.get("userId")
+    raw_lib_id = data.get("libraryId")
+    user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
+    lib_id = str(raw_lib_id).strip() if raw_lib_id is not None else ""
     include_types = normalize_item_types(data.get("types"))
     include_tags = normalize_tags(data.get("includeTags", ""))
     exclude_tags = normalize_tags(data.get("excludeTags", ""))
@@ -227,8 +254,14 @@ def api_export():
     )
     if error is not None:
         return error
-    user_id = data["userId"]
-    lib_id = data["libraryId"]
+    if not user_id:
+        logger.warning("POST /api/export missing required userId (raw=%r)", raw_user_id)
+        return jsonify({"error": "userId is required"}), 400
+    if not lib_id:
+        logger.warning(
+            "POST /api/export missing required libraryId (raw=%r)", raw_lib_id
+        )
+        return jsonify({"error": "libraryId is required"}), 400
 
     fields = _prepare_fields()
     start_index = 0

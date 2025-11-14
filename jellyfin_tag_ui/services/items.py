@@ -6,28 +6,67 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..config import DEFAULT_SORT_BY, DEFAULT_SORT_ORDER, SORTABLE_FIELDS, SORT_ORDERS
-
 from ..jellyfin_client import jf_get
+
+
+_KNOWN_ITEM_TYPES = {
+    "movie": "Movie",
+    "series": "Series",
+    "season": "Season",
+    "episode": "Episode",
+    "audio": "Audio",
+    "audiobook": "AudioBook",
+    "musicvideo": "MusicVideo",
+    "musicalbum": "MusicAlbum",
+    "musicartist": "MusicArtist",
+    "playlist": "Playlist",
+    "boxset": "BoxSet",
+    "collectionfolder": "CollectionFolder",
+    "folder": "Folder",
+    "photo": "Photo",
+    "photoalbum": "PhotoAlbum",
+    "book": "Book",
+    "video": "Video",
+    "program": "Program",
+    "recording": "Recording",
+    "tvchannel": "TvChannel",
+    "trailer": "Trailer",
+}
 
 
 def normalize_item_types(raw_types: Any) -> List[str]:
     if raw_types is None:
         return []
 
-    if isinstance(raw_types, str):
-        candidates: Sequence[Any] = [raw_types]
-    elif isinstance(raw_types, Sequence) and not isinstance(
-        raw_types, (str, bytes, bytearray)
-    ):
-        candidates = list(raw_types)
-    else:
-        candidates = [raw_types]
-
+    seen: Set[str] = set()
     normalized: List[str] = []
-    for value in candidates:
+
+    def _iter_candidates(value: Any) -> Iterable[str]:
+        if isinstance(value, str):
+            for part in value.split(","):
+                text = part.strip()
+                if text:
+                    yield text
+            return
+        if isinstance(value, Sequence) and not isinstance(
+            value, (str, bytes, bytearray)
+        ):
+            for entry in value:
+                yield from _iter_candidates(entry)
+            return
         text = str(value or "").strip()
         if text:
-            normalized.append(text)
+            yield text
+
+    for candidate in _iter_candidates(raw_types):
+        key = candidate.casefold()
+        canonical = _KNOWN_ITEM_TYPES.get(key, candidate)
+        canonical_key = canonical.casefold()
+        if canonical_key in seen:
+            continue
+        seen.add(canonical_key)
+        normalized.append(canonical)
+
     return normalized
 
 
@@ -198,10 +237,12 @@ def page_items(
             params["SearchTerm"] = normalized_search
     if exclude_types:
         params["ExcludeItemTypes"] = ",".join(exclude_types)
-    if sort_by:
-        params["SortBy"] = sort_by
-    if sort_order:
-        params["SortOrder"] = sort_order
+    if sort_by is not None or sort_order is not None:
+        normalized_sort_by, normalized_sort_order = normalize_sort_params(
+            sort_by, sort_order
+        )
+        params["SortBy"] = normalized_sort_by
+        params["SortOrder"] = normalized_sort_order
     endpoint = f"{base}/Users/{user_id}/Items" if user_id else f"{base}/Items"
     return jf_get(endpoint, api_key, params)
 

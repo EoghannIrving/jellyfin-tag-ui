@@ -40,11 +40,42 @@ def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _iter_tag_values(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        sources = [value]
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        sources = []
+        for entry in value:
+            sources.extend(_iter_tag_values(entry))
+        return sources
+    else:
+        sources = [str(value)]
+
+    results: List[str] = []
+    for source in sources:
+        for part in source.split(","):
+            for candidate in part.split(";"):
+                text = candidate.strip()
+                if text:
+                    results.append(text)
+    return results
+
+
 def normalize_tags(tag_string: Any) -> List[str]:
     if not tag_string:
         return []
-    raw = [t.strip() for part in str(tag_string).split(",") for t in part.split(";")]
-    return sorted(list({t for t in raw if t}), key=str.lower)
+
+    raw_values: List[str] = _iter_tag_values(tag_string)
+    canonical: Dict[str, str] = {}
+    for tag in raw_values:
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key not in canonical:
+            canonical[key] = tag
+    return sorted(canonical.values(), key=str.casefold)
 
 
 def item_tags(item: Mapping[str, Any]) -> List[str]:
@@ -331,6 +362,17 @@ def render_nfo(metadata: Mapping[str, Any]) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+def _tag_lookup_key(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    text = value.strip()
+    if not text:
+        return None
+    return text.casefold()
+
+
 def jf_update_tags(
     base: str,
     api_key: str,
@@ -350,19 +392,26 @@ def jf_update_tags(
     item = jf_get(fetch_endpoint, api_key)
 
     existing_tags = item_tags(item)
-    merged: Dict[str, str] = {
-        tag.lower(): tag for tag in existing_tags if isinstance(tag, str) and tag
-    }
+    merged: Dict[str, str] = {}
+    for tag in existing_tags:
+        key = _tag_lookup_key(tag)
+        if key is None:
+            continue
+        merged[key] = str(tag)
 
     for tag in add:
-        if tag:
-            merged[tag.lower()] = tag
+        key = _tag_lookup_key(tag)
+        if key is None:
+            continue
+        merged[key] = str(tag)
 
     for tag in remove:
-        if tag:
-            merged.pop(tag.lower(), None)
+        key = _tag_lookup_key(tag)
+        if key is None:
+            continue
+        merged.pop(key, None)
 
-    final_tags = sorted(merged.values(), key=str.lower)
+    final_tags = sorted(merged.values(), key=str.casefold)
 
     payload = _filtered_update_payload(item)
     payload["Id"] = payload.get("Id") or item_id

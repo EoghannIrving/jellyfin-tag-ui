@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import subprocess
 import sys
 import types
 import unittest
@@ -23,9 +24,21 @@ if "dotenv" not in sys.modules:
     sys.modules["dotenv"] = mock_dotenv
 
 from jellyfin_tag_ui import create_app  # noqa: E402
-from jellyfin_tag_ui.config import COLLECTION_ITEM_TYPES  # noqa: E402
+from jellyfin_tag_ui.config import (  # noqa: E402
+    COLLECTION_ITEM_TYPES,
+    DEFAULT_SORT_BY,
+)
+from jellyfin_tag_ui.jellyfin_client import jf_post  # noqa: E402
 from jellyfin_tag_ui.services import tags as tags_module  # noqa: E402
-from jellyfin_tag_ui.services.tags import item_tags, jf_update_tags  # noqa: E402
+from jellyfin_tag_ui.services.items import (  # noqa: E402
+    normalize_item_types,
+    page_items,
+)
+from jellyfin_tag_ui.services.tags import (  # noqa: E402
+    item_tags,
+    jf_update_tags,
+    normalize_tags,
+)
 
 app = create_app()
 
@@ -154,6 +167,138 @@ class JfUpdateTagsEndpointTest(unittest.TestCase):
         self.assertEqual(post_payload["Id"], item_id)
         self.assertEqual(post_payload["Tags"], ["New"])
 
+    def test_removes_tags_using_casefold_matching(self):
+        base = "http://example.com"
+        api_key = "token"
+        item_id = "12345"
+        item_payload = {
+            "Id": item_id,
+            "Tags": ["Straße"],
+            "TagItems": [],
+            "Path": "/media/example.mkv",
+        }
+
+        with patch(
+            "jellyfin_tag_ui.services.tags.jf_get", return_value=item_payload
+        ) as mock_get, patch(
+            "jellyfin_tag_ui.services.tags.jf_put_with_fallback", return_value={}
+        ) as mock_put, patch(
+            "jellyfin_tag_ui.services.tags.render_nfo", return_value="<item />"
+        ), patch(
+            "jellyfin_tag_ui.services.tags.Path"
+        ) as mock_path:
+            mock_path_instance = mock_path.return_value
+            mock_nfo_path = MagicMock()
+            mock_nfo_path.parent = MagicMock()
+            mock_path_instance.with_suffix.return_value = mock_nfo_path
+
+            result = jf_update_tags(
+                base,
+                api_key,
+                item_id,
+                add=[],
+                remove=["STRASSE"],
+            )
+
+        self.assertEqual(result, [])
+        mock_get.assert_called_once_with(f"{base}/Items/{item_id}", api_key)
+        mock_put.assert_called_once()
+        payload = mock_put.call_args.kwargs["json"]
+        self.assertEqual(payload["Tags"], [])
+
+
+class NormalizeItemTypesTest(unittest.TestCase):
+    def test_splits_comma_delimited_strings(self):
+        result = normalize_item_types("Movie,Series , Episode")
+        self.assertEqual(result, ["Movie", "Series", "Episode"])
+
+    def test_flattens_nested_sequences(self):
+        result = normalize_item_types(
+            ["Movie", ["Series,Episode", None], " Documentaries "]
+        )
+        self.assertEqual(result, ["Movie", "Series", "Episode", "Documentaries"])
+
+    def test_normalizes_common_type_names_case_insensitively(self):
+        result = normalize_item_types(
+            [
+                "movie",
+                "Series",
+                "AUDIOBOOK",
+                "tvchannel",
+                "CustomType",
+            ]
+        )
+        self.assertEqual(
+            result,
+            ["Movie", "Series", "AudioBook", "TvChannel", "CustomType"],
+        )
+
+    def test_deduplicates_types_using_casefold(self):
+        result = normalize_item_types(["Movie", "movie", "MUSICVIDEO", "musicvideo"])
+        self.assertEqual(result, ["Movie", "MusicVideo"])
+
+
+class PageItemsSortNormalizationTest(unittest.TestCase):
+    def test_normalizes_sort_params_before_request(self):
+        with patch(
+            "jellyfin_tag_ui.services.items.jf_get", return_value={}
+        ) as mock_get:
+            page_items(
+                "http://example.com",
+                "token",
+                user_id="user",
+                lib_id="library",
+                include_types=[],
+                fields=["Name"],
+                sort_by="InvalidField",
+                sort_order="desc",
+            )
+
+        self.assertTrue(mock_get.called)
+        _, _, params = mock_get.call_args.args
+        self.assertEqual(params["SortBy"], DEFAULT_SORT_BY)
+        self.assertEqual(params["SortOrder"], "Descending")
+
+
+class FrontendUtilsTest(unittest.TestCase):
+    def test_option_list_escapes_values(self):
+        script = """
+import { optionList } from './static/js/utils.js';
+const items = [{ Id: 'abc" onfocus="alert(1)', Name: '<script>alert(1)</script>' }];
+const result = optionList(items, 'Id', 'Name');
+console.log(result);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+        )
+        output = completed.stdout.strip()
+        self.assertIn(
+            '<option value="abc&quot; onfocus=&quot;alert(1)">',
+            output,
+        )
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", output)
+        self.assertNotIn("<script>", output)
+
+
+class JellyfinClientJsonParsingTest(unittest.TestCase):
+    def test_parses_json_with_case_insensitive_content_type(self):
+        payload = {"status": "ok"}
+        response = DummyResponse(
+            json_data=payload,
+            headers={"content-type": "Application/Json; charset=utf-8"},
+        )
+
+        with patch(
+            "jellyfin_tag_ui.jellyfin_client.requests.post", return_value=response
+        ):
+            result = jf_post("http://example.com/Items", "token")
+
+        self.assertEqual(result, payload)
+
 
 class ItemTagsTest(unittest.TestCase):
     def test_merges_tagitems_and_tags(self):
@@ -182,6 +327,16 @@ class ItemTagsTest(unittest.TestCase):
         }
 
         self.assertEqual(item_tags(item), ["Action", "Drama", "Mystery"])
+
+
+class NormalizeTagsTest(unittest.TestCase):
+    def test_normalizes_sequence_values(self):
+        values = ["Action", "Drama", "Action", "Sci-Fi", "sci-fi"]
+        self.assertEqual(normalize_tags(values), ["Action", "Drama", "Sci-Fi"])
+
+    def test_retains_first_casing_for_duplicates(self):
+        values = ["Mystery", "mystery", "MYSTERY", "thriller"]
+        self.assertEqual(normalize_tags(values), ["Mystery", "thriller"])
 
 
 class ApiTagsPaginationTest(unittest.TestCase):
@@ -284,6 +439,75 @@ class ApiTagsPaginationTest(unittest.TestCase):
         self.assertEqual(data["source"], "items-tags")
         self.assertEqual(data["tags"], ["Alpha", "Beta", "Gamma"])
         self.assertEqual(len(calls), 2)
+
+
+class ApiRequestValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_api_items_requires_user_id(self):
+        response = self.client.post(
+            "/api/items",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "libraryId": "lib",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "userId is required")
+
+    def test_api_items_requires_library_id(self):
+        response = self.client.post(
+            "/api/items",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "userId": "user",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "libraryId is required")
+
+    def test_api_export_requires_user_id(self):
+        response = self.client.post(
+            "/api/export",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "libraryId": "lib",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "userId is required")
+
+    def test_api_export_requires_library_id(self):
+        response = self.client.post(
+            "/api/export",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+                "userId": "user",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "libraryId is required")
+
+    def test_api_tags_requires_library_id(self):
+        response = self.client.post(
+            "/api/tags",
+            json={
+                "base": "http://example.com",
+                "apiKey": "token",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "libraryId is required")
 
 
 class ApiItemsFieldsTest(unittest.TestCase):
@@ -450,6 +674,66 @@ class ApiItemsFieldsTest(unittest.TestCase):
             ["Action", "Drama", "Mystery"],
         )
 
+    def test_api_items_accepts_list_of_include_tags(self):
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            return {
+                "Items": [
+                    {
+                        "Id": "match",
+                        "Type": "Movie",
+                        "Name": "Match",
+                        "Path": "/match.mkv",
+                        "Tags": ["Action", "Mystery"],
+                        "TagItems": [],
+                        "InheritedTags": [],
+                    },
+                    {
+                        "Id": "other",
+                        "Type": "Movie",
+                        "Name": "Other",
+                        "Path": "/other.mkv",
+                        "Tags": ["Other"],
+                        "TagItems": [],
+                        "InheritedTags": [],
+                    },
+                ],
+                "TotalRecordCount": 2,
+            }
+
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "includeTags": ["Action", "Mystery"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["ReturnedCount"], 1)
+        self.assertEqual(len(data["Items"]), 1)
+        self.assertEqual(data["Items"][0]["Id"], "match")
+
     def test_api_items_clamps_limit_to_100(self):
         captured = {}
 
@@ -486,6 +770,47 @@ class ApiItemsFieldsTest(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["limit"], 100)
+
+    def test_api_items_handles_invalid_pagination_values(self):
+        captured = {}
+
+        def fake_page_items(
+            base,
+            api_key,
+            user_id,
+            lib_id,
+            include_types,
+            fields,
+            start,
+            limit,
+            search_term=None,
+            exclude_types=None,
+            sort_by=None,
+            sort_order=None,
+        ):
+            captured["start"] = start
+            captured["limit"] = limit
+            return {"Items": [], "TotalRecordCount": 0}
+
+        with patch(
+            "jellyfin_tag_ui.routes.items.page_items", side_effect=fake_page_items
+        ):
+            response = self.client.post(
+                "/api/items",
+                json={
+                    "base": "http://example.com",
+                    "apiKey": "dummy",
+                    "userId": "user",
+                    "libraryId": "lib",
+                    "types": ["Movie"],
+                    "startIndex": "not-a-number",
+                    "limit": "oops",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["start"], 0)
         self.assertEqual(captured["limit"], 100)
 
     def test_api_items_passes_sort_parameters(self):
