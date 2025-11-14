@@ -13,6 +13,7 @@ from ..services.items import normalize_item_types
 from ..services.tags import (
     ensure_tag_cache_refresh,
     get_tag_cache_snapshot,
+    get_tag_progress,
     is_refresh_in_progress,
     is_tag_cache_stale,
 )
@@ -97,3 +98,23 @@ def api_tags():
         include_types,
     )
     return jsonify({"status": "pending", "message": message}), 202
+
+
+@bp.route("/tags/status", methods=["POST"])
+def api_tag_status():
+    data = request.get_json(force=True)
+    base, api_key = resolve_jellyfin_config(data)
+    raw_lib_id = data.get("libraryId")
+    raw_user_id = data.get("userId")
+    lib_id = str(raw_lib_id).strip() if raw_lib_id is not None else ""
+    user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
+    include_types = normalize_item_types(data.get("types"))
+    entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
+    progress = get_tag_progress(base, lib_id, user_id, include_types)
+    response = {
+        "loading": bool(entry and entry.loading),
+        "processed": progress.get("processed", 0),
+        "pages": progress.get("pages", 0),
+        "lastUpdated": entry.updated if entry else None,
+    }
+    return jsonify(response)

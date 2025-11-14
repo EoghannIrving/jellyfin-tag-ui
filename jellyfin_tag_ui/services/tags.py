@@ -40,6 +40,7 @@ class TagCacheEntry:
 _TAG_CACHE: Dict[TagCacheKey, TagCacheEntry] = {}
 _TAG_CACHE_LOCK = threading.RLock()
 _TAG_REFRESHING: Dict[TagCacheKey, bool] = {}
+_TAG_PROGRESS: Dict[TagCacheKey, Dict[str, Any]] = {}
 
 
 def _is_refreshing(key: TagCacheKey) -> bool:
@@ -240,6 +241,7 @@ def _schedule_tag_refresh(
                 entry.error = detail
                 entry.updated = time.time()
                 entry.loading = False
+                _TAG_PROGRESS.pop(key, None)
             _set_refreshing(key, False)
             return
         logger.info(
@@ -255,6 +257,7 @@ def _schedule_tag_refresh(
             entry.error = None
             entry.updated = time.time()
             entry.loading = False
+            _TAG_PROGRESS.pop(key, None)
         _set_refreshing(key, False)
 
     thread = threading.Thread(
@@ -288,6 +291,14 @@ def ensure_tag_cache_refresh(
 ) -> TagCacheEntry:
     key = _make_cache_key(base, lib_id, user_id, include_types)
     return _schedule_tag_refresh(key, base, api_key, user_id, lib_id, include_types)
+
+
+def get_tag_progress(
+    base: str, lib_id: str, user_id: str, include_types: Sequence[str]
+) -> Dict[str, Any]:
+    key = _make_cache_key(base, lib_id, user_id, include_types)
+    with _TAG_CACHE_LOCK:
+        return dict(_TAG_PROGRESS.get(key, {"processed": 0, "pages": 0}))
 
 
 def is_refresh_in_progress(
@@ -423,6 +434,7 @@ def aggregate_tags_from_items(
     total_processed = 0
     current_start = start
     current_limit = fetch_limit
+    key = _make_cache_key(base, lib_id, user_id or "", include_types)
 
     logger.info(
         "Aggregating tags from items (library=%s user=%s fetch_limit=%d)",
@@ -430,6 +442,7 @@ def aggregate_tags_from_items(
         user_id,
         fetch_limit,
     )
+    page_index = 0
     while True:
         payload = page_items(
             base,
@@ -446,10 +459,16 @@ def aggregate_tags_from_items(
             break
         batch_size = len(items)
         total_processed += batch_size
+        with _TAG_CACHE_LOCK:
+            _TAG_PROGRESS[key] = {
+                "processed": total_processed,
+                "pages": page_index + 1,
+            }
         for it in items:
             for name in item_tags(it):
                 _add_tag_count(tag_counts, canonical_names, name, 1)
         current_start += batch_size
+        page_index += 1
         total_count = payload.get("TotalRecordCount")
         logger.debug(
             "Aggregated page start=%d batch=%d total_processed=%d",

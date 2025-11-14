@@ -20,6 +20,8 @@ const chipFields = {
 const tagStates = new Map();
 let allTags = [];
 let pendingRetryTimer = null;
+let statusPollInterval = null;
+let lastStatusTimestamp = null;
 
 const TAG_STATE_CONFIG = {
   "": {
@@ -259,6 +261,10 @@ function clearTagPendingNotice() {
     clearTimeout(pendingRetryTimer);
     pendingRetryTimer = null;
   }
+  if (statusPollInterval) {
+    clearInterval(statusPollInterval);
+    statusPollInterval = null;
+  }
 }
 
 function showTagPendingNotice(message) {
@@ -268,7 +274,9 @@ function showTagPendingNotice(message) {
   setHtml("tagList", "");
   const notice = document.createElement("div");
   notice.className = "tag-pending-notice";
-  notice.textContent = message || "Gathering tags, please try again shortly.";
+  const messageText = document.createElement("span");
+  messageText.textContent = message || "Gathering tags, please try again shortly.";
+  notice.appendChild(messageText);
   const button = document.createElement("button");
   button.type = "button";
   button.className = "tag-pending-retry";
@@ -290,6 +298,28 @@ function showTagPendingNotice(message) {
       loadTags();
     }, 4000);
   }
+    if (!statusPollInterval) {
+      statusPollInterval = setInterval(async () => {
+        const body = {
+          base: val("base"),
+          apiKey: val("apiKey"),
+          userId: document.getElementById("userId")?.value,
+          libraryId: document.getElementById("libraryId")?.value,
+          types: splitTags(val("types")),
+        };
+        try {
+          const status = await api("/api/tags/status", body);
+          messageText.textContent = `Gathering tags… processed ${status.processed} items over ${status.pages} pages`;
+          if (status.lastUpdated && status.lastUpdated !== lastStatusTimestamp) {
+            lastStatusTimestamp = status.lastUpdated;
+            clearTagPendingNotice();
+            loadTags();
+          }
+        } catch (error) {
+          messageText.textContent = "Gathering tags, please try again shortly.";
+        }
+      }, 2500);
+    }
 }
 
 async function loadTags() {
