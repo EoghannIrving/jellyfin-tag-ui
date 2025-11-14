@@ -258,10 +258,28 @@ async function loadTags() {
   setHtml("tagList", "Loading tags...");
   try {
     const data = await api("/api/tags", body);
-    allTags = data.tags || [];
+    if (data.status === "pending") {
+      setHtml("tagList", escapeHtml(data.message || "Gathering tags, please try again."));
+      return;
+    }
+    allTags = Array.isArray(data.tags) ? data.tags : [];
+    if (!allTags.length) {
+      setHtml("tagList", "No tags found.");
+      return;
+    }
     const available = new Set(allTags);
     resetStatesForUnavailableTags(available);
+    const existingNotice = tagListEl?.querySelector(".tag-refresh-notice");
+    if (existingNotice) {
+      existingNotice.remove();
+    }
     renderTagButtons(filterTagsByQuery(allTags, currentTagSearchQuery()));
+    if (data.loading && tagListEl) {
+      const refreshNotice = document.createElement("div");
+      refreshNotice.className = "tag-refresh-notice";
+      refreshNotice.textContent = "Tags are being refreshed in the background.";
+      tagListEl.prepend(refreshNotice);
+    }
   } catch (error) {
     allTags = [];
     tagStates.clear();

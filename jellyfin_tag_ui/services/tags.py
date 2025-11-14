@@ -2,13 +2,41 @@
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 from xml.etree import ElementTree as ET
 
-from ..config import MAX_TAG_PAGES, TAG_PAGE_LIMIT, UPDATE_FIELDS
+from ..config import MAX_TAG_PAGES, TAG_CACHE_TTL, TAG_PAGE_LIMIT, UPDATE_FIELDS
 from ..jellyfin_client import jf_get, jf_put_with_fallback
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TagCacheKey:
+    base: str
+    library_id: str
+    user_id: str
+    include_types: Tuple[str, ...]
+
+
+@dataclass
+class TagCacheEntry:
+    tags: List[str] = field(default_factory=list)
+    source: str = "cache"
+    updated: float = 0.0
+    loading: bool = False
+    error: Optional[str] = None
+
+
+_TAG_CACHE: Dict[TagCacheKey, TagCacheEntry] = {}
+_TAG_CACHE_LOCK = threading.Lock()
 
 
 class TagPaginationError(RuntimeError):
@@ -27,16 +55,16 @@ def _is_empty_value(value: Any) -> bool:
 
 def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
-    for field in UPDATE_FIELDS:
-        if field == "Tags":
+    for field_name in UPDATE_FIELDS:
+        if field_name == "Tags":
             continue
-        value = item.get(field)
-        if field == "Id" and value:
-            payload[field] = value
+        value = item.get(field_name)
+        if field_name == "Id" and value:
+            payload[field_name] = value
             continue
         if _is_empty_value(value):
             continue
-        payload[field] = value
+        payload[field_name] = value
     return payload
 
 
@@ -131,6 +159,105 @@ def sorted_tag_names(
     tag_counts: Mapping[str, int], canonical_names: Optional[Mapping[str, str]] = None
 ) -> List[str]:
     return _sorted_tag_names(tag_counts, canonical_names)
+
+
+def _make_cache_key(
+    base: str,
+    lib_id: str,
+    user_id: str,
+    include_types: Sequence[str],
+) -> TagCacheKey:
+    normalized_types = tuple(sorted(include_types))
+    return TagCacheKey(
+        base=base, library_id=lib_id, user_id=user_id, include_types=normalized_types
+    )
+
+
+def _read_cache_entry(key: TagCacheKey) -> Optional[TagCacheEntry]:
+    with _TAG_CACHE_LOCK:
+        entry = _TAG_CACHE.get(key)
+        if not entry:
+            return None
+        return TagCacheEntry(
+            tags=list(entry.tags),
+            source=entry.source,
+            updated=entry.updated,
+            loading=entry.loading,
+            error=entry.error,
+        )
+
+
+def _needs_refresh(entry: TagCacheEntry) -> bool:
+    return (time.time() - entry.updated) >= TAG_CACHE_TTL
+
+
+def _schedule_tag_refresh(
+    key: TagCacheKey,
+    base: str,
+    api_key: str,
+    user_id: str,
+    lib_id: str,
+    include_types: Sequence[str],
+) -> TagCacheEntry:
+    with _TAG_CACHE_LOCK:
+        entry = _TAG_CACHE.setdefault(key, TagCacheEntry())
+        if entry.loading:
+            return entry
+        entry.loading = True
+
+    def _worker() -> None:
+        try:
+            tags, source = discover_tags(base, api_key, user_id, lib_id, include_types)
+        except Exception as exc:
+            detail = str(exc) or "Failed to list tags"
+            logger.exception(
+                "Tag refresh failed for library=%s user=%s", lib_id, user_id
+            )
+            with _TAG_CACHE_LOCK:
+                entry.tags = []
+                entry.source = "error"
+                entry.error = detail
+                entry.updated = time.time()
+                entry.loading = False
+            return
+        with _TAG_CACHE_LOCK:
+            entry.tags = tags
+            entry.source = source
+            entry.error = None
+            entry.updated = time.time()
+            entry.loading = False
+
+    thread = threading.Thread(
+        target=_worker, daemon=True, name=f"tag-refresh-{key.library_id}"
+    )
+    thread.start()
+    return entry
+
+
+def get_tag_cache_snapshot(
+    base: str, lib_id: str, user_id: str, include_types: Sequence[str]
+) -> Optional[TagCacheEntry]:
+    key = _make_cache_key(base, lib_id, user_id, include_types)
+    return _read_cache_entry(key)
+
+
+def is_tag_cache_stale(entry: Optional[TagCacheEntry]) -> bool:
+    if entry is None:
+        return True
+    if not entry.tags:
+        return True
+    return _needs_refresh(entry)
+
+
+def ensure_tag_cache_refresh(
+    base: str,
+    api_key: str,
+    user_id: str,
+    lib_id: str,
+    include_types: Sequence[str],
+) -> TagCacheEntry:
+    key = _make_cache_key(base, lib_id, user_id, include_types)
+    return _schedule_tag_refresh(key, base, api_key, user_id, lib_id, include_types)
 
 
 def _merge_tag_counts(
@@ -293,6 +420,69 @@ def aggregate_tags_from_items(
             break
 
     return tag_counts, canonical_names, total_processed
+
+
+def discover_tags(
+    base: str,
+    api_key: str,
+    user_id: Optional[str],
+    lib_id: str,
+    include_types: Sequence[str],
+) -> Tuple[List[str], str]:
+    params: Dict[str, Any] = {"ParentId": lib_id, "Recursive": "true"}
+    if include_types:
+        params["IncludeItemTypes"] = ",".join(include_types)
+
+    if user_id:
+        try:
+            tag_counts, canonical_names = collect_paginated_tags(
+                f"{base}/Users/{user_id}/Items/Tags",
+                api_key,
+                params,
+            )
+            names = sorted_tag_names(tag_counts, canonical_names)
+            logger.info(
+                "/api/tags returning %d tags via users-items-tags endpoint", len(names)
+            )
+            return names, "users-items-tags"
+        except Exception:
+            logger.exception(
+                "User-scoped tags endpoint failed; falling back to global endpoint"
+            )
+
+    try:
+        tag_counts, canonical_names = collect_paginated_tags(
+            f"{base}/Items/Tags",
+            api_key,
+            params,
+        )
+        names = sorted_tag_names(tag_counts, canonical_names)
+        logger.info("/api/tags returning %d tags via items-tags endpoint", len(names))
+        return names, "items-tags"
+    except Exception:
+        logger.exception(
+            "Items-tags endpoint failed; falling back to aggregated pagination"
+        )
+
+    fields = ["TagItems", "Tags", "InheritedTags", "Type"]
+    fetch_limit = 500
+    tag_counts, canonical_names, total_processed = aggregate_tags_from_items(
+        base,
+        api_key,
+        user_id,
+        lib_id,
+        include_types,
+        fields,
+        0,
+        fetch_limit,
+    )
+    logger.info(
+        "Aggregated %d items to collect %d unique tags",
+        total_processed,
+        len(tag_counts),
+    )
+    names = sorted_tag_names(tag_counts, canonical_names)
+    return names, "aggregated"
 
 
 def render_nfo(metadata: Mapping[str, Any]) -> str:
@@ -465,4 +655,8 @@ __all__ = [
     "normalize_tags",
     "render_nfo",
     "sorted_tag_names",
+    "discover_tags",
+    "ensure_tag_cache_refresh",
+    "get_tag_cache_snapshot",
+    "is_tag_cache_stale",
 ]
