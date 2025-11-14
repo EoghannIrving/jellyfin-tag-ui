@@ -19,7 +19,11 @@ from ..services.items import (
     serialize_item_for_response,
     sort_items_for_response,
 )
-from ..services.tags import normalize_tags
+from ..services.tags import (
+    get_tag_cache_snapshot,
+    is_tag_cache_stale,
+    normalize_tags,
+)
 
 bp = Blueprint("items", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
@@ -59,6 +63,20 @@ def _prepare_fields() -> List[str]:
     ]
 
 
+def _missing_include_tags(
+    base: str,
+    lib_id: str,
+    user_id: str,
+    include_types: Sequence[str],
+    include_tag_keys: Set[str],
+) -> Set[str]:
+    entry = get_tag_cache_snapshot(base, lib_id, user_id or "", include_types)
+    if not entry or is_tag_cache_stale(entry):
+        return set()
+    available = {tag.casefold() for tag in entry.tags}
+    return include_tag_keys.difference(available)
+
+
 def _filter_and_collect_items(
     base: str,
     api_key: str,
@@ -74,6 +92,17 @@ def _filter_and_collect_items(
     limit: int,
     start_index: int,
 ) -> List[Dict[str, Any]]:
+    if include_tag_keys:
+        missing_tags = _missing_include_tags(
+            base, lib_id, user_id, include_types, include_tag_keys
+        )
+        if missing_tags:
+            logger.info(
+                "Include tags %s missing from tag cache; returning no items",
+                sorted(missing_tags),
+            )
+            return []
+
     fields = _prepare_fields()
     matched_items: List[Dict[str, Any]] = []
     current_start = 0
