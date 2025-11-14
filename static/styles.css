@@ -15,7 +15,11 @@ h1{ font-size:32px; margin-bottom:16px; }
 .results-header{ display:flex; flex-direction:column; gap:4px; }
 .results-hint{ margin:0; color:var(--muted); font-size:13px; }
 .results-layout{ display:grid; grid-template-columns: minmax(0,1fr) minmax(260px, 320px); gap:18px; }
-.results-main{ display:flex; flex-direction:column; gap:12px; }
+.results-main{ display:flex; flex-direction:column; gap:12px; min-width:0; }
+
+#results{ width:100%; overflow-x:auto; }
+
+#results table{ min-width:720px; }
 .results-table-controls{ font-size:13px; }
 .results-table-controls label{ display:inline-flex; align-items:center; gap:8px; color:var(--muted); }
 .results-table-controls input{ width:16px; height:16px; }
