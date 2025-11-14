@@ -131,7 +131,7 @@ def _filter_and_collect_items(
 def api_items():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
-    base, error = validate_base(base, "/api/items", data.get("base"))
+    validated_base, error = validate_base(base, "/api/items", data.get("base"))
     raw_user_id = data.get("userId")
     raw_lib_id = data.get("libraryId")
     user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
@@ -152,7 +152,7 @@ def api_items():
     )
     logger.info(
         "POST /api/items base=%s library=%s user=%s include=%s exclude=%s start=%d limit=%d sort_by=%s sort_order=%s",
-        base or "",
+        validated_base or "",
         lib_id,
         user_id,
         include_tags,
@@ -164,6 +164,8 @@ def api_items():
     )
     if error is not None:
         return error
+    assert validated_base is not None
+    base = validated_base
 
     if not user_id:
         logger.warning("POST /api/items missing required userId (raw=%r)", raw_user_id)
@@ -221,7 +223,7 @@ def api_items():
 def api_export():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
-    base, error = validate_base(base, "/api/export", data.get("base"))
+    validated_base, error = validate_base(base, "/api/export", data.get("base"))
     raw_user_id = data.get("userId")
     raw_lib_id = data.get("libraryId")
     user_id = str(raw_user_id).strip() if raw_user_id is not None else ""
@@ -241,7 +243,7 @@ def api_export():
     )
     logger.info(
         "POST /api/export base=%s library=%s user=%s include_types=%s include=%s exclude=%s title_query=%s exclude_collections=%s sort_by=%s sort_order=%s",
-        base or "",
+        validated_base or "",
         lib_id,
         user_id,
         include_types,
@@ -254,6 +256,8 @@ def api_export():
     )
     if error is not None:
         return error
+    assert validated_base is not None
+    base = validated_base
     if not user_id:
         logger.warning("POST /api/export missing required userId (raw=%r)", raw_user_id)
         return jsonify({"error": "userId is required"}), 400
@@ -336,6 +340,6 @@ def api_export():
     writer.writerows(rows)
     mem = io.BytesIO(output.getvalue().encode("utf-8"))
     mem.seek(0)
-    return send_file(
+    return send_file(  # type: ignore[arg-type]
         mem, mimetype="text/csv", as_attachment=True, download_name="tags_export.csv"
     )

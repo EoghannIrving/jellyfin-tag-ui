@@ -21,17 +21,19 @@ logger = logging.getLogger(__name__)
 def api_apply():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
-    base, error = validate_base(base, "/api/apply", data.get("base"))
+    validated_base, error = validate_base(base, "/api/apply", data.get("base"))
     changes = data.get("changes") or []
     user_id = data.get("userId")
     logger.info(
         "POST /api/apply base=%s user=%s changes=%d",
-        base or "",
+        validated_base or "",
         user_id,
         len(changes),
     )
     if error is not None:
         return error
+    assert validated_base is not None
+    base = validated_base
 
     if not user_id:
         logger.warning("POST /api/apply missing required userId")

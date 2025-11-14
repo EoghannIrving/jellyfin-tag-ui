@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def api_tags():
     data = request.get_json(force=True)
     base, api_key = resolve_jellyfin_config(data)
-    base, error = validate_base(base, "/api/tags", data.get("base"))
+    validated_base, error = validate_base(base, "/api/tags", data.get("base"))
     raw_lib_id = data.get("libraryId")
     raw_user_id = data.get("userId")
     lib_id = str(raw_lib_id).strip() if raw_lib_id is not None else ""
@@ -31,13 +31,15 @@ def api_tags():
     include_types = normalize_item_types(data.get("types"))
     logger.info(
         "POST /api/tags base=%s library=%s user=%s include_types=%s",
-        base or "",
+        validated_base or "",
         lib_id,
         user_id,
         include_types,
     )
     if error is not None:
         return error
+    assert validated_base is not None
+    base = validated_base
 
     if not lib_id:
         logger.warning("POST /api/tags missing required libraryId (raw=%r)", raw_lib_id)

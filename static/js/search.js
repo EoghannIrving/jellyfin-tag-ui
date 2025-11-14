@@ -142,6 +142,11 @@ function formatReleaseLabel(item) {
   return "";
 }
 
+function buildDetailKey(itemId, index) {
+  const rawValue = itemId || `item-${index}`;
+  return rawValue.replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
 function checkbox(item) {
   const checked = searchState.selectedIds.has(item.Id) ? " checked" : "";
   const safeId = escapeHtml(item.Id);
@@ -162,9 +167,22 @@ function renderResults(items) {
     return;
   }
   const rows = items
-    .map((item) => {
+    .map((item, index) => {
       const safeId = escapeHtml(item.Id || "");
       const isSelected = searchState.selectedIds.has(item.Id);
+      const detailKey = buildDetailKey(item.Id, index);
+      const detailRowId = `result-details-${detailKey}`;
+      const detailButton = `
+        <button
+          type="button"
+          class="result-details-toggle"
+          data-target-id="${detailRowId}"
+          aria-controls="${detailRowId}"
+          aria-expanded="false"
+        >
+          Details
+        </button>
+      `;
       const rowClasses = ["result-row"];
       if (isSelected) {
         rowClasses.push("is-selected");
@@ -191,6 +209,66 @@ function renderResults(items) {
       const releaseBadge = releaseLabel
         ? `<span class="meta-badge">${releaseLabel}</span>`
         : '<span class="meta-badge meta-badge-empty">TBD</span>';
+      const genreList = Array.isArray(item.Genres) ? item.Genres.filter(Boolean) : [];
+      const genreHtml = genreList.length
+        ? `<span class="result-details-value">${genreList.map((genre) => escapeHtml(genre)).join(", ")}</span>`
+        : "";
+      const tagListText = normalizedTags.length
+        ? `<span class="result-details-value">${normalizedTags.map((tag) => escapeHtml(tag)).join(", ")}</span>`
+        : "";
+      const detailSegments = [];
+      if (releaseLabel) {
+        detailSegments.push(`
+          <div class="result-details-item">
+            <span class="result-details-label">Release</span>
+            <span class="result-details-value">${releaseLabel}</span>
+          </div>
+        `);
+      }
+      if (genreHtml) {
+        detailSegments.push(`
+          <div class="result-details-item">
+            <span class="result-details-label">Genres</span>
+            ${genreHtml}
+          </div>
+        `);
+      }
+      if (tagListText) {
+        detailSegments.push(`
+          <div class="result-details-item">
+            <span class="result-details-label">Tags</span>
+            ${tagListText}
+          </div>
+        `);
+      }
+      if (safePath) {
+        detailSegments.push(`
+          <div class="result-details-item">
+            <span class="result-details-label">Path</span>
+            <span class="result-details-value">${safePath}</span>
+          </div>
+        `);
+      }
+      const overviewText = item.Overview ? escapeHtml(item.Overview) : "";
+      const overviewHtml = overviewText
+        ? `<p class="result-details-overview">${overviewText}</p>`
+        : "";
+      const detailBody = `
+        <tr
+          class="result-details-row"
+          id="${detailRowId}"
+          data-details-for="${safeId}"
+          aria-hidden="true"
+        >
+          <td colspan="6">
+            <div class="result-details">
+              ${detailSegments.join("")}
+              ${overviewHtml}
+              ${!detailSegments.length && !overviewHtml ? '<p class="result-details-empty">No extra info available.</p>' : ""}
+            </div>
+          </td>
+        </tr>
+      `;
       return `
     <tr${attrString}>
       <td class="result-field result-field--checkbox">
@@ -202,7 +280,10 @@ function renderResults(items) {
         ${typeLabel}
       </td>
       <td class="result-field result-field--name">
-        <div class="result-field-label">Name</div>
+        <div class="result-field-name-header">
+          <div class="result-field-label">Name</div>
+          ${detailButton}
+        </div>
         <div class="result-field-value">${safeName}</div>
       </td>
       <td class="result-field result-field--release">
@@ -220,6 +301,7 @@ function renderResults(items) {
         </div>
       </td>
     </tr>
+    ${detailBody}
   `;
     })
     .join("");
@@ -235,6 +317,7 @@ function renderResults(items) {
     </table>
   `;
   setHtml("results", table);
+  setupDetailToggles();
 
   const selAll = document.getElementById("selAll");
   const rowCheckboxes = Array.from(document.querySelectorAll("input.sel"));
@@ -294,6 +377,27 @@ function renderResults(items) {
   }
 
   updateSelectionSummary();
+}
+
+function setupDetailToggles() {
+  const toggles = document.querySelectorAll(".result-details-toggle");
+  toggles.forEach((toggle) => {
+    const targetId = toggle.dataset.targetId;
+    const targetRow = targetId ? document.getElementById(targetId) : null;
+    if (!targetRow) {
+      return;
+    }
+    targetRow.classList.remove("is-visible");
+    targetRow.setAttribute("aria-hidden", "true");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      const nextState = !expanded;
+      toggle.setAttribute("aria-expanded", String(nextState));
+      targetRow.classList.toggle("is-visible", nextState);
+      targetRow.setAttribute("aria-hidden", String(!nextState));
+    });
+  });
 }
 
 function updatePaginationControls(returned, filteredTotal) {

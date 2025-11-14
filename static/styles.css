@@ -50,9 +50,11 @@ h1{ font-size:32px; margin-bottom:16px; }
 .result-field--type{ flex:0 0 120px; }
 .result-field--release{ flex:0 0 140px; }
 .result-field--name{ flex:1 1 240px; }
+.result-field-name-header{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .result-field--path{ flex:1 1 220px; }
 .result-field--tags{ flex:1 1 280px; }
 .result-field-label{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; }
+.result-field-name-header .result-field-label{ margin:0; }
 .result-field-value{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .result-field-value + .result-field-value{ margin-top:2px; }
 .result-field--checkbox input{ height:20px; width:20px; }
@@ -67,6 +69,18 @@ h1{ font-size:32px; margin-bottom:16px; }
 .type-badge-empty{ opacity:0.6; }
 .meta-badge{ background:rgba(148,163,184,0.15); }
 .meta-badge-empty{ opacity:0.6; }
+.result-details-toggle{ background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 14px; font-size:12px; font-weight:600; cursor:pointer; transition:border-color 0.2s ease, color 0.2s ease; }
+.result-details-toggle:hover{ color:var(--text); border-color:var(--accent); }
+.result-details-toggle:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.result-details-row{ display:none; }
+.result-details-row.is-visible{ display:table-row; }
+.result-details-row td{ padding:0 18px 12px; border:none; background:transparent; }
+.result-details{ padding-top:12px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--muted); }
+.result-details-item{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.result-details-label{ font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); }
+.result-details-value{ font-size:13px; font-weight:600; color:var(--text); word-break:break-word; }
+.result-details-overview{ margin:0; color:var(--text); font-size:13px; }
+.result-details-empty{ margin:0; font-size:13px; font-style:italic; color:var(--muted); }
 
 @media (max-width: 900px){
   .results-layout{ grid-template-columns:1fr; }
