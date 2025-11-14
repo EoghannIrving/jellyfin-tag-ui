@@ -16,6 +16,7 @@ COLLECTION_ITEM_TYPES: Tuple[str, ...] = ("BoxSet", "CollectionFolder")
 TAG_PAGE_LIMIT = 200
 MAX_TAG_PAGES = 100
 TAG_CACHE_TTL = 600
+JELLYFIN_TIMEOUT = 90  # seconds
 
 DEFAULT_SORT_BY = "SortName"
 DEFAULT_SORT_ORDER = "Ascending"

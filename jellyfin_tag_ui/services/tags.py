@@ -38,7 +38,7 @@ class TagCacheEntry:
 
 
 _TAG_CACHE: Dict[TagCacheKey, TagCacheEntry] = {}
-_TAG_CACHE_LOCK = threading.Lock()
+_TAG_CACHE_LOCK = threading.RLock()
 _TAG_REFRESHING: Dict[TagCacheKey, bool] = {}
 
 

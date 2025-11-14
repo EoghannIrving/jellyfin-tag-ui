@@ -7,6 +7,8 @@ from typing import Any, Dict, Mapping, Optional
 
 import requests  # type: ignore[import-untyped]
 
+from .config import JELLYFIN_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,11 +98,15 @@ def jf_get(
     url: str,
     api_key: str,
     params: Optional[Mapping[str, Any]] = None,
-    timeout: int = 30,
+    timeout: Optional[int] = None,
 ):
     logger.debug("GET %s params=%s", url, params)
+    effective_timeout = timeout if timeout is not None else JELLYFIN_TIMEOUT
     response = requests.get(
-        url, headers=jf_headers(api_key), params=params or {}, timeout=timeout
+        url,
+        headers=jf_headers(api_key),
+        params=params or {},
+        timeout=effective_timeout,
     )
     _raise_for_status(response)
     return response.json()
@@ -122,15 +128,16 @@ def jf_post(
     api_key: str,
     params: Optional[Mapping[str, Any]] = None,
     json: Optional[Mapping[str, Any]] = None,
-    timeout: int = 30,
+    timeout: Optional[int] = None,
 ):
     logger.debug("POST %s params=%s json=%s", url, params, json)
+    effective_timeout = timeout if timeout is not None else JELLYFIN_TIMEOUT
     response = requests.post(
         url,
         headers=jf_headers(api_key),
         params=params or {},
         json=json,
-        timeout=timeout,
+        timeout=effective_timeout,
     )
     _raise_for_status(response)
     return _parse_json_response(response)
@@ -141,15 +148,16 @@ def jf_put(
     api_key: str,
     params: Optional[Mapping[str, Any]] = None,
     json: Optional[Mapping[str, Any]] = None,
-    timeout: int = 30,
+    timeout: Optional[int] = None,
 ):
     logger.debug("PUT %s params=%s json=%s", url, params, json)
+    effective_timeout = timeout if timeout is not None else JELLYFIN_TIMEOUT
     response = requests.put(
         url,
         headers=jf_headers(api_key),
         params=params or {},
         json=json,
-        timeout=timeout,
+        timeout=effective_timeout,
     )
     _raise_for_status(response)
     return _parse_json_response(response)
