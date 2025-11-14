@@ -166,7 +166,7 @@ function renderResults(items) {
     updateSelectionSummary();
     return;
   }
-  const rows = items
+  const cards = items
     .map((item, index) => {
       const safeId = escapeHtml(item.Id || "");
       const isSelected = searchState.selectedIds.has(item.Id);
@@ -183,20 +183,10 @@ function renderResults(items) {
           Details
         </button>
       `;
-      const rowClasses = ["result-row"];
-      if (isSelected) {
-        rowClasses.push("is-selected");
-      }
-      const attributes = [];
-      if (rowClasses.length) {
-        attributes.push(`class="${rowClasses.join(" ")}"`);
-      }
-      if (safeId) {
-        attributes.push(`data-id="${safeId}"`);
-      }
-      const attrString = attributes.length ? ` ${attributes.join(" ")}` : "";
       const safeType = escapeHtml(item.Type || "");
-      const typeLabel = safeType ? `<span class="type-badge">${safeType}</span>` : '<span class="type-badge type-badge-empty">Unknown</span>';
+      const typeLabel = safeType
+        ? `<span class="type-badge">${safeType}</span>`
+        : '<span class="type-badge type-badge-empty">Unknown</span>';
       const safeName = escapeHtml(item.Name || "");
       const safePath = escapeHtml(item.Path || "");
       const normalizedTags = normalizeTagList(item.Tags || []);
@@ -253,79 +243,76 @@ function renderResults(items) {
       const overviewHtml = overviewText
         ? `<p class="result-details-overview">${overviewText}</p>`
         : "";
-      const detailBody = `
-        <tr
-          class="result-details-row"
-          id="${detailRowId}"
-          data-details-for="${safeId}"
-          aria-hidden="true"
-        >
-          <td colspan="6">
-            <div class="result-details">
-              ${detailSegments.join("")}
-              ${overviewHtml}
-              ${!detailSegments.length && !overviewHtml ? '<p class="result-details-empty">No extra info available.</p>' : ""}
-            </div>
-          </td>
-        </tr>
-      `;
       return `
-    <tr${attrString}>
-      <td class="result-field result-field--checkbox">
-        <span class="sr-only">Select</span>
-        ${checkbox(item)}
-      </td>
-      <td class="result-field result-field--type">
-        <div class="result-field-label">Type</div>
-        ${typeLabel}
-      </td>
-      <td class="result-field result-field--name">
-        <div class="result-field-name-header">
-          <div class="result-field-label">Name</div>
-          ${detailButton}
+    <article class="result-card${isSelected ? " is-selected" : ""}" data-id="${safeId}">
+      <div class="result-card-body">
+        <div class="result-field result-field--checkbox">
+          <span class="sr-only">Select</span>
+          ${checkbox(item)}
         </div>
-        <div class="result-field-value">${safeName}</div>
-      </td>
-      <td class="result-field result-field--release">
-        <div class="result-field-label">Release</div>
-        ${releaseBadge}
-      </td>
-      <td class="result-field result-field--path">
-        <div class="result-field-label">Path</div>
-        <div class="result-field-value">${safePath}</div>
-      </td>
-      <td class="result-field result-field--tags result-tags">
-        <div class="inline-tag-control" data-id="${safeId}">
-          <div class="inline-tag-summary" aria-live="polite">${tagsHtml}</div>
-          <button type="button" class="inline-tag-edit" data-id="${safeId}" aria-label="${safeEditLabel}" aria-haspopup="dialog" aria-expanded="false">Edit</button>
+        <div class="result-field result-field--type">
+          <div class="result-field-label">Type</div>
+          ${typeLabel}
         </div>
-      </td>
-    </tr>
-    ${detailBody}
+        <div class="result-field result-field--name">
+          <div class="result-field-name-header">
+            <div class="result-field-label">Name</div>
+            ${detailButton}
+          </div>
+          <div class="result-field-value">${safeName}</div>
+        </div>
+        <div class="result-field result-field--release">
+          <div class="result-field-label">Release</div>
+          ${releaseBadge}
+        </div>
+        <div class="result-field result-field--path">
+          <div class="result-field-label">Path</div>
+          <div class="result-field-value">${safePath}</div>
+        </div>
+        <div class="result-field result-field--tags result-tags">
+          <div class="inline-tag-control" data-id="${safeId}">
+            <div class="inline-tag-summary" aria-live="polite">${tagsHtml}</div>
+            <button type="button" class="inline-tag-edit" data-id="${safeId}" aria-label="${safeEditLabel}" aria-haspopup="dialog" aria-expanded="false">Edit</button>
+          </div>
+        </div>
+      </div>
+      <div
+        class="result-card-details"
+        id="${detailRowId}"
+        data-details-for="${safeId}"
+        aria-hidden="true"
+      >
+        <div class="result-details">
+          ${detailSegments.join("")}
+          ${overviewHtml}
+          ${!detailSegments.length && !overviewHtml ? '<p class="result-details-empty">No extra info available.</p>' : ""}
+        </div>
+      </div>
+    </article>
   `;
     })
     .join("");
-  const table = `
+  const layout = `
     <div class="results-table-controls">
       <label>
         <input type="checkbox" id="selAll" />
         Select all visible
       </label>
     </div>
-    <table>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="results-list">
+      ${cards}
+    </div>
   `;
-  setHtml("results", table);
+  setHtml("results", layout);
   setupDetailToggles();
 
   const selAll = document.getElementById("selAll");
   const rowCheckboxes = Array.from(document.querySelectorAll("input.sel"));
 
   rowCheckboxes.forEach((cb) => {
-    const row = cb.closest("tr");
-    if (row) {
-      row.classList.toggle("is-selected", cb.checked);
+    const card = cb.closest(".result-card");
+    if (card) {
+      card.classList.toggle("is-selected", cb.checked);
     }
     if (cb.checked) {
       const id = cb.dataset.id;
@@ -341,17 +328,17 @@ function renderResults(items) {
         });
       }
     }
-    if (row) {
+    if (card) {
       const id = cb.dataset.id;
       if (id) {
         const item = searchState.itemsById.get(id) || items.find((candidate) => candidate.Id === id);
         if (item) {
           try {
-            row.dataset.item = JSON.stringify(item);
+            card.dataset.item = JSON.stringify(item);
           } catch (error) {
-            row.dataset.item = "";
+            card.dataset.item = "";
           }
-          const control = row.querySelector(".inline-tag-control");
+          const control = card.querySelector(".inline-tag-control");
           if (control) {
             updateInlineTagSummary(control, item.Tags || []);
           }
@@ -383,19 +370,19 @@ function setupDetailToggles() {
   const toggles = document.querySelectorAll(".result-details-toggle");
   toggles.forEach((toggle) => {
     const targetId = toggle.dataset.targetId;
-    const targetRow = targetId ? document.getElementById(targetId) : null;
-    if (!targetRow) {
+    const targetPane = targetId ? document.getElementById(targetId) : null;
+    if (!targetPane) {
       return;
     }
-    targetRow.classList.remove("is-visible");
-    targetRow.setAttribute("aria-hidden", "true");
+    targetPane.classList.remove("is-visible");
+    targetPane.setAttribute("aria-hidden", "true");
     toggle.setAttribute("aria-expanded", "false");
     toggle.addEventListener("click", () => {
       const expanded = toggle.getAttribute("aria-expanded") === "true";
       const nextState = !expanded;
       toggle.setAttribute("aria-expanded", String(nextState));
-      targetRow.classList.toggle("is-visible", nextState);
-      targetRow.setAttribute("aria-hidden", String(!nextState));
+      targetPane.classList.toggle("is-visible", nextState);
+      targetPane.setAttribute("aria-hidden", String(!nextState));
     });
   });
 }

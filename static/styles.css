@@ -18,8 +18,6 @@ h1{ font-size:32px; margin-bottom:16px; }
 .results-main{ display:flex; flex-direction:column; gap:12px; min-width:0; }
 
 #results{ width:100%; overflow-x:auto; }
-
-#results table{ min-width:720px; }
 .results-table-controls{ font-size:13px; }
 .results-table-controls label{ display:inline-flex; align-items:center; gap:8px; color:var(--muted); }
 .results-table-controls input{ width:16px; height:16px; }
@@ -39,12 +37,12 @@ h1{ font-size:32px; margin-bottom:16px; }
 .chip-list{ display:flex; flex-wrap:wrap; gap:6px; }
 .chip{ padding:6px 10px; background:rgba(83,177,255,0.15); border-radius:999px; font-size:12px; }
 .pagination-controls{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.results-main table{ border-collapse:separate; border-spacing:0 14px; width:100%; margin-top:0; }
-.results-main table tbody{ display:block; }
-.results-main table tbody tr{ display:flex; flex-wrap:wrap; gap:16px; border:1px solid var(--line); border-radius:14px; padding:14px 18px; background:#0a1323; box-shadow:0 10px 20px rgba(0,0,0,0.3); transition:transform 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
-.results-main table tbody tr:nth-child(odd){ background:rgba(15,23,42,0.7); }
-.results-main table tbody tr:hover{ transform:translateY(-2px); border-color:var(--accent); }
-.results-main table tbody tr.is-selected{ border-color:var(--accent); box-shadow:0 10px 30px rgba(83,177,255,0.25); background:rgba(8,8,18,0.95); }
+.results-list{ display:flex; flex-direction:column; gap:18px; }
+.result-card{ border:1px solid var(--line); border-radius:16px; padding:16px; background:#0a1323; box-shadow:0 10px 20px rgba(0,0,0,0.3); transition:transform 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
+.result-card:nth-child(odd){ background:rgba(15,23,42,0.7); }
+.result-card:hover{ transform:translateY(-2px); border-color:var(--accent); }
+.result-card.is-selected{ border-color:var(--accent); box-shadow:0 10px 30px rgba(83,177,255,0.25); background:rgba(8,8,18,0.95); }
+.result-card-body{ display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
 .result-field{ flex:1 1 200px; min-width:160px; display:flex; flex-direction:column; gap:4px; }
 .result-field--checkbox{ flex:0 0 auto; }
 .result-field--type{ flex:0 0 120px; }
@@ -69,13 +67,12 @@ h1{ font-size:32px; margin-bottom:16px; }
 .type-badge-empty{ opacity:0.6; }
 .meta-badge{ background:rgba(148,163,184,0.15); }
 .meta-badge-empty{ opacity:0.6; }
-.result-details-toggle{ background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 14px; font-size:12px; font-weight:600; cursor:pointer; transition:border-color 0.2s ease, color 0.2s ease; }
-.result-details-toggle:hover{ color:var(--text); border-color:var(--accent); }
+.result-details-toggle{ background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 14px; font-size:12px; font-weight:600; cursor:pointer; transition:background 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
+.result-details-toggle:hover{ color:var(--text); border-color:var(--accent); background:rgba(83,177,255,0.05); }
 .result-details-toggle:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.result-details-row{ display:none; }
-.result-details-row.is-visible{ display:table-row; }
-.result-details-row td{ padding:0 18px 12px; border:none; background:transparent; }
-.result-details{ padding-top:12px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--muted); }
+.result-card-details{ display:none; margin-top:12px; }
+.result-card-details.is-visible{ display:block; }
+.result-card-details .result-details{ padding-top:12px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--muted); }
 .result-details-item{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .result-details-label{ font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); }
 .result-details-value{ font-size:13px; font-weight:600; color:var(--text); word-break:break-word; }
