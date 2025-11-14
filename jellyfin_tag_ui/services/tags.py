@@ -8,6 +8,8 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from requests import HTTPError
+
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 from xml.etree import ElementTree as ET
 
@@ -465,6 +467,13 @@ def discover_tags(
                 "/api/tags returning %d tags via users-items-tags endpoint", len(names)
             )
             return names, "users-items-tags"
+        except HTTPError as exc:
+            logger.info(
+                "Skipping user-scoped tags endpoint for lib=%s user=%s (%s)",
+                lib_id,
+                user_id,
+                exc,
+            )
         except Exception:
             logger.exception(
                 "User-scoped tags endpoint failed; falling back to global endpoint"
@@ -479,6 +488,8 @@ def discover_tags(
         names = sorted_tag_names(tag_counts, canonical_names)
         logger.info("/api/tags returning %d tags via items-tags endpoint", len(names))
         return names, "items-tags"
+    except HTTPError as exc:
+        logger.info("Skipping items-tags endpoint for lib=%s (%s)", lib_id, exc)
     except Exception:
         logger.exception(
             "Items-tags endpoint failed; falling back to aggregated pagination"
