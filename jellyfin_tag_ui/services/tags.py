@@ -152,6 +152,20 @@ def _load_disk_cache() -> None:
             continue
 
 
+def _update_partial_cache(
+    key: TagCacheKey, tag_counts: Counter[str], canonical_names: Dict[str, str]
+) -> None:
+    names = sorted_tag_names(tag_counts, canonical_names)
+    with _TAG_CACHE_LOCK:
+        entry = _TAG_CACHE.get(key)
+        if not entry:
+            return
+        entry.tags = names
+        entry.source = "progress"
+        entry.loading = True
+    _persist_cache_entry(key, entry)
+
+
 _load_disk_cache()
 
 
@@ -541,6 +555,7 @@ def aggregate_tags_from_items(
         for it in items:
             for name in item_tags(it):
                 _add_tag_count(tag_counts, canonical_names, name, 1)
+        _update_partial_cache(key, tag_counts, canonical_names)
         current_start += batch_size
         page_index += 1
         total_count = payload.get("TotalRecordCount")
