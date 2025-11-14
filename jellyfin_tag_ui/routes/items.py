@@ -37,9 +37,9 @@ def _sanitize_limit(value: Any) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
-        parsed = 100
-    if parsed > 100:
-        return 100
+        parsed = 50
+    if parsed > 50:
+        return 50
     if parsed < 0:
         return 0
     return parsed
@@ -146,7 +146,7 @@ def api_items():
     include_tag_keys: Set[str] = {tag.casefold() for tag in include_tags}
     exclude_tag_keys: Set[str] = {tag.casefold() for tag in exclude_tags}
     start = _sanitize_start_index(data.get("startIndex", 0))
-    limit = _sanitize_limit(data.get("limit", 100))
+    limit = _sanitize_limit(data.get("limit"))
     sort_by, sort_order = normalize_sort_params(
         data.get("sortBy"), data.get("sortOrder")
     )

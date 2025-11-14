@@ -1,6 +1,6 @@
 export const searchState = {
   startIndex: 0,
-  limit: 100,
+  limit: 50,
   total: 0,
   queryKey: "",
   itemsById: new Map(),
