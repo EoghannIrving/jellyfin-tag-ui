@@ -165,32 +165,55 @@ function renderResults(items) {
     .map((item) => {
       const safeId = escapeHtml(item.Id || "");
       const isSelected = searchState.selectedIds.has(item.Id);
-      const attributes = [];
+      const rowClasses = ["result-row"];
       if (isSelected) {
-        attributes.push('class="is-selected"');
+        rowClasses.push("is-selected");
+      }
+      const attributes = [];
+      if (rowClasses.length) {
+        attributes.push(`class="${rowClasses.join(" ")}"`);
       }
       if (safeId) {
         attributes.push(`data-id="${safeId}"`);
       }
       const attrString = attributes.length ? ` ${attributes.join(" ")}` : "";
       const safeType = escapeHtml(item.Type || "");
+      const typeLabel = safeType ? `<span class="type-badge">${safeType}</span>` : '<span class="type-badge type-badge-empty">Unknown</span>';
       const safeName = escapeHtml(item.Name || "");
       const safePath = escapeHtml(item.Path || "");
       const normalizedTags = normalizeTagList(item.Tags || []);
       const tagsHtml = normalizedTags.length
-        ? `<span class="inline-tag-summary-text">${escapeHtml(normalizedTags.join("; "))}</span>`
+        ? normalizedTags.map((tag) => `<span class="tag-badge">${escapeHtml(tag)}</span>`).join("")
         : '<span class="inline-tag-summary-text inline-tag-empty">No tags</span>';
       const editLabelBase = item.Name || item.Id || "item";
       const safeEditLabel = escapeHtml(`Edit tags for ${editLabelBase}`);
       const releaseLabel = escapeHtml(formatReleaseLabel(item));
+      const releaseBadge = releaseLabel
+        ? `<span class="meta-badge">${releaseLabel}</span>`
+        : '<span class="meta-badge meta-badge-empty">TBD</span>';
       return `
     <tr${attrString}>
-      <td>${checkbox(item)}</td>
-      <td>${safeType}</td>
-      <td>${safeName}</td>
-      <td>${releaseLabel}</td>
-      <td>${safePath}</td>
-      <td class="result-tags">
+      <td class="result-field result-field--checkbox">
+        <span class="sr-only">Select</span>
+        ${checkbox(item)}
+      </td>
+      <td class="result-field result-field--type">
+        <div class="result-field-label">Type</div>
+        ${typeLabel}
+      </td>
+      <td class="result-field result-field--name">
+        <div class="result-field-label">Name</div>
+        <div class="result-field-value">${safeName}</div>
+      </td>
+      <td class="result-field result-field--release">
+        <div class="result-field-label">Release</div>
+        ${releaseBadge}
+      </td>
+      <td class="result-field result-field--path">
+        <div class="result-field-label">Path</div>
+        <div class="result-field-value">${safePath}</div>
+      </td>
+      <td class="result-field result-field--tags result-tags">
         <div class="inline-tag-control" data-id="${safeId}">
           <div class="inline-tag-summary" aria-live="polite">${tagsHtml}</div>
           <button type="button" class="inline-tag-edit" data-id="${safeId}" aria-label="${safeEditLabel}" aria-haspopup="dialog" aria-expanded="false">Edit</button>
@@ -201,17 +224,13 @@ function renderResults(items) {
     })
     .join("");
   const table = `
+    <div class="results-table-controls">
+      <label>
+        <input type="checkbox" id="selAll" />
+        Select all visible
+      </label>
+    </div>
     <table>
-      <thead>
-        <tr>
-          <th><input type="checkbox" id="selAll"></th>
-          <th>Type</th>
-          <th>Name</th>
-          <th>Release</th>
-          <th>Path</th>
-          <th>Tags</th>
-        </tr>
-      </thead>
       <tbody>${rows}</tbody>
     </table>
   `;

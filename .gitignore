@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+.env.*
+*.egg-info/
+
+# Node/Frontend cache (if added later)
+node_modules/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Python tooling
+pip-wheel-metadata/
+.pytest_cache/
+
+# Docker
+*.log
