@@ -39,6 +39,17 @@ class TagCacheEntry:
 
 _TAG_CACHE: Dict[TagCacheKey, TagCacheEntry] = {}
 _TAG_CACHE_LOCK = threading.Lock()
+_TAG_REFRESHING: Dict[TagCacheKey, bool] = {}
+
+
+def _is_refreshing(key: TagCacheKey) -> bool:
+    with _TAG_CACHE_LOCK:
+        return bool(_TAG_REFRESHING.get(key))
+
+
+def _set_refreshing(key: TagCacheKey, value: bool) -> None:
+    with _TAG_CACHE_LOCK:
+        _TAG_REFRESHING[key] = value
 
 
 class TagPaginationError(RuntimeError):
@@ -203,9 +214,10 @@ def _schedule_tag_refresh(
 ) -> TagCacheEntry:
     with _TAG_CACHE_LOCK:
         entry = _TAG_CACHE.setdefault(key, TagCacheEntry())
-        if entry.loading:
+        if entry.loading or _is_refreshing(key):
             return entry
         entry.loading = True
+        _set_refreshing(key, True)
         logger.info(
             "Scheduling tag refresh for lib=%s user=%s include_types=%s",
             lib_id,
@@ -222,12 +234,13 @@ def _schedule_tag_refresh(
             logger.exception(
                 "Tag refresh failed for library=%s user=%s", lib_id, user_id
             )
-        with _TAG_CACHE_LOCK:
-            entry.tags = []
-            entry.source = "error"
-            entry.error = detail
-            entry.updated = time.time()
-            entry.loading = False
+            with _TAG_CACHE_LOCK:
+                entry.tags = []
+                entry.source = "error"
+                entry.error = detail
+                entry.updated = time.time()
+                entry.loading = False
+            _set_refreshing(key, False)
             return
         logger.info(
             "Tag discovery succeeded for lib=%s user=%s (%d tags via %s)",
@@ -242,6 +255,7 @@ def _schedule_tag_refresh(
             entry.error = None
             entry.updated = time.time()
             entry.loading = False
+        _set_refreshing(key, False)
 
     thread = threading.Thread(
         target=_worker, daemon=True, name=f"tag-refresh-{key.library_id}"
@@ -274,6 +288,13 @@ def ensure_tag_cache_refresh(
 ) -> TagCacheEntry:
     key = _make_cache_key(base, lib_id, user_id, include_types)
     return _schedule_tag_refresh(key, base, api_key, user_id, lib_id, include_types)
+
+
+def is_refresh_in_progress(
+    base: str, lib_id: str, user_id: str, include_types: Sequence[str]
+) -> bool:
+    key = _make_cache_key(base, lib_id, user_id, include_types)
+    return _is_refreshing(key)
 
 
 def _merge_tag_counts(
@@ -403,6 +424,12 @@ def aggregate_tags_from_items(
     current_start = start
     current_limit = fetch_limit
 
+    logger.info(
+        "Aggregating tags from items (library=%s user=%s fetch_limit=%d)",
+        lib_id,
+        user_id,
+        fetch_limit,
+    )
     while True:
         payload = page_items(
             base,
@@ -424,6 +451,12 @@ def aggregate_tags_from_items(
                 _add_tag_count(tag_counts, canonical_names, name, 1)
         current_start += batch_size
         total_count = payload.get("TotalRecordCount")
+        logger.debug(
+            "Aggregated page start=%d batch=%d total_processed=%d",
+            current_start,
+            batch_size,
+            total_processed,
+        )
         if (
             total_count is not None
             and isinstance(total_count, int)
@@ -495,6 +528,11 @@ def discover_tags(
             "Items-tags endpoint failed; falling back to aggregated pagination"
         )
 
+    logger.info(
+        "Falling back to aggregated pagination for lib=%s user=%s",
+        lib_id,
+        user_id,
+    )
     fields = ["TagItems", "Tags", "InheritedTags", "Type"]
     fetch_limit = 500
     tag_counts, canonical_names, total_processed = aggregate_tags_from_items(
@@ -690,4 +728,5 @@ __all__ = [
     "ensure_tag_cache_refresh",
     "get_tag_cache_snapshot",
     "is_tag_cache_stale",
+    "is_refresh_in_progress",
 ]

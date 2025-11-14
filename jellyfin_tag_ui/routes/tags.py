@@ -13,6 +13,7 @@ from ..services.items import normalize_item_types
 from ..services.tags import (
     ensure_tag_cache_refresh,
     get_tag_cache_snapshot,
+    is_refresh_in_progress,
     is_tag_cache_stale,
 )
 
@@ -47,14 +48,25 @@ def api_tags():
         return jsonify({"error": "libraryId is required"}), 400
 
     entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
-    if is_tag_cache_stale(entry):
+    needs_refresh = not entry or is_tag_cache_stale(entry)
+    refreshing = is_refresh_in_progress(base, lib_id, user_id, include_types)
+    if needs_refresh and not refreshing:
         ensure_tag_cache_refresh(base, api_key, user_id, lib_id, include_types)
-        entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
+        refreshing = True
 
     wait_deadline = time.time() + 5
-    while entry and entry.loading and not entry.tags and time.time() < wait_deadline:
-        time.sleep(0.5)
+    while time.time() < wait_deadline:
         entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
+        if entry and entry.tags:
+            break
+        refreshing = is_refresh_in_progress(base, lib_id, user_id, include_types)
+        if not refreshing:
+            if needs_refresh:
+                ensure_tag_cache_refresh(base, api_key, user_id, lib_id, include_types)
+                refreshing = True
+            else:
+                break
+        time.sleep(0.5)
 
     if entry and entry.tags:
         logger.info(
