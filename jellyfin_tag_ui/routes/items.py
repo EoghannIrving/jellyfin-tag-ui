@@ -81,9 +81,23 @@ def _filter_and_collect_items(
         return []
     fetch_limit = limit
     title_query_lower = title_query.casefold() if title_query else ""
+    logger.debug(
+        "Filtering with includes=%s excludes=%s start_index=%d limit=%d",
+        include_tag_keys,
+        exclude_tag_keys,
+        start_index,
+        limit,
+    )
     target_count = start_index + limit
 
     while True:
+        logger.debug(
+            "Fetching page start=%d limit=%d include=%s exclude=%s",
+            current_start,
+            fetch_limit,
+            include_tag_keys,
+            exclude_tag_keys,
+        )
         payload = page_items(
             base,
             api_key,
@@ -212,7 +226,7 @@ def api_items():
     returned_count = len(paged_items)
 
     logger.info(
-        "/api/items returning %d filtered items out of %d filtered total (excluded_types=%s)",
+        "/api/items returning %d/%d items (excluded_types=%s)",
         returned_count,
         filtered_total,
         list(excluded_types),
