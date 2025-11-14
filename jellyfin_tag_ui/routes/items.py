@@ -73,12 +73,16 @@ def _filter_and_collect_items(
     sort_by: str,
     sort_order: str,
     limit: int,
+    start_index: int,
 ) -> List[Dict[str, Any]]:
     fields = _prepare_fields()
     matched_items: List[Dict[str, Any]] = []
     current_start = 0
-    fetch_limit = limit if limit > 0 else 100
+    if limit <= 0:
+        return []
+    fetch_limit = limit
     title_query_lower = title_query.casefold() if title_query else ""
+    target_count = start_index + limit
 
     while True:
         payload = page_items(
@@ -104,11 +108,15 @@ def _filter_and_collect_items(
             excluded_set = set(excluded_types)
             items = [it for it in raw_items if it.get("Type") not in excluded_set]
 
+        stop_early = False
         for it in items:
             if item_matches_filters(
                 it, include_tag_keys, exclude_tag_keys, title_query_lower
             ):
                 matched_items.append(serialize_item_for_response(it))
+                if target_count is not None and len(matched_items) >= target_count:
+                    stop_early = True
+                    break
 
         page_size = len(raw_items)
         current_start += page_size
@@ -122,6 +130,8 @@ def _filter_and_collect_items(
                 fetch_limit = page_size
             continue
         if page_size < fetch_limit:
+            break
+        if stop_early:
             break
 
     return matched_items
@@ -189,6 +199,7 @@ def api_items():
         sort_by,
         sort_order,
         limit,
+        start,
     )
 
     total_matches = len(matched_items)
