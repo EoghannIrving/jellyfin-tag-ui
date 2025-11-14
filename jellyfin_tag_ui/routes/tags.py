@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+import time
+
 from flask import Blueprint, jsonify, request
 
 from ..services.jellyfin import resolve_jellyfin_config, validate_base
@@ -47,6 +49,11 @@ def api_tags():
     entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
     if is_tag_cache_stale(entry):
         ensure_tag_cache_refresh(base, api_key, user_id, lib_id, include_types)
+        entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
+
+    wait_deadline = time.time() + 5
+    while entry and entry.loading and not entry.tags and time.time() < wait_deadline:
+        time.sleep(0.5)
         entry = get_tag_cache_snapshot(base, lib_id, user_id, include_types)
 
     if entry and entry.tags:

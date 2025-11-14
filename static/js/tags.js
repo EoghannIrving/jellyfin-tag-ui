@@ -19,6 +19,7 @@ const chipFields = {
 
 const tagStates = new Map();
 let allTags = [];
+let pendingRetryTimer = null;
 
 const TAG_STATE_CONFIG = {
   "": {
@@ -242,6 +243,55 @@ export function getChipTags(type) {
   return normalizeTagList(splitTags(field.input.value));
 }
 
+function clearTagPendingNotice() {
+  if (!tagListEl) {
+    return;
+  }
+  const notice = tagListEl.querySelector(".tag-pending-notice");
+  if (notice) {
+    notice.remove();
+  }
+  const button = tagListEl.querySelector(".tag-pending-retry");
+  if (button) {
+    button.remove();
+  }
+  if (pendingRetryTimer) {
+    clearTimeout(pendingRetryTimer);
+    pendingRetryTimer = null;
+  }
+}
+
+function showTagPendingNotice(message) {
+  if (!tagListEl) {
+    return;
+  }
+  setHtml("tagList", "");
+  const notice = document.createElement("div");
+  notice.className = "tag-pending-notice";
+  notice.textContent = message || "Gathering tags, please try again shortly.";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tag-pending-retry";
+  button.textContent = "Retry now";
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    button.textContent = "Retrying…";
+    setTimeout(() => {
+      button.disabled = false;
+      button.textContent = "Retry now";
+      loadTags();
+    }, 3000);
+  });
+  tagListEl.appendChild(notice);
+  tagListEl.appendChild(button);
+  if (!pendingRetryTimer) {
+    pendingRetryTimer = setTimeout(() => {
+      pendingRetryTimer = null;
+      loadTags();
+    }, 4000);
+  }
+}
+
 async function loadTags() {
   const validationMessage = validateServerConfig();
   if (validationMessage) {
@@ -259,7 +309,7 @@ async function loadTags() {
   try {
     const data = await api("/api/tags", body);
     if (data.status === "pending") {
-      setHtml("tagList", escapeHtml(data.message || "Gathering tags, please try again."));
+      showTagPendingNotice(data.message);
       return;
     }
     allTags = Array.isArray(data.tags) ? data.tags : [];
@@ -267,6 +317,7 @@ async function loadTags() {
       setHtml("tagList", "No tags found.");
       return;
     }
+    clearTagPendingNotice();
     const available = new Set(allTags);
     resetStatesForUnavailableTags(available);
     const existingNotice = tagListEl?.querySelector(".tag-refresh-notice");
