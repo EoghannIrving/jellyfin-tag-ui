@@ -47,7 +47,6 @@ def _sanitize_limit(value: Any) -> int:
 
 def _prepare_fields() -> List[str]:
     return [
-        "TagItems",
         "InheritedTags",
         "Name",
         "Path",
