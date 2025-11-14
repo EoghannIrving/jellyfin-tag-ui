@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
 from collections import Counter
 from dataclasses import dataclass, field
+from hashlib import sha256
 from pathlib import Path
 from requests import HTTPError
 
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 from xml.etree import ElementTree as ET
 
-from ..config import MAX_TAG_PAGES, TAG_CACHE_TTL, TAG_PAGE_LIMIT, UPDATE_FIELDS
+from ..config import (
+    AGGREGATE_FETCH_LIMIT,
+    MAX_TAG_PAGES,
+    PROJECT_ROOT,
+    TAG_CACHE_TTL,
+    TAG_PAGE_LIMIT,
+    UPDATE_FIELDS,
+)
 from ..jellyfin_client import jf_get, jf_put_with_fallback
 
 
@@ -37,6 +46,7 @@ class TagCacheEntry:
     error: Optional[str] = None
 
 
+TAG_CACHE_DIR = PROJECT_ROOT / "logs" / "tag_cache"
 _TAG_CACHE: Dict[TagCacheKey, TagCacheEntry] = {}
 _TAG_CACHE_LOCK = threading.RLock()
 _TAG_REFRESHING: Dict[TagCacheKey, bool] = {}
@@ -80,6 +90,69 @@ def _filtered_update_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
             continue
         payload[field_name] = value
     return payload
+
+
+def _cache_file_path(key: TagCacheKey) -> Path:
+    normalized = "|".join(
+        [key.base, key.library_id, key.user_id, ",".join(key.include_types)]
+    )
+    digest = sha256(normalized.encode("utf-8")).hexdigest()
+    return TAG_CACHE_DIR / f"{digest}.json"
+
+
+def _ensure_cache_dir() -> None:
+    TAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _persist_cache_entry(key: TagCacheKey, entry: TagCacheEntry) -> None:
+    try:
+        _ensure_cache_dir()
+        path = _cache_file_path(key)
+        with path.open("w", encoding="utf-8") as stream:
+            json.dump(
+                {
+                    "tags": entry.tags,
+                    "source": entry.source,
+                    "updated": entry.updated,
+                    "error": entry.error,
+                    "base": key.base,
+                    "library_id": key.library_id,
+                    "user_id": key.user_id,
+                    "include_types": key.include_types,
+                },
+                stream,
+            )
+    except OSError:
+        logger.warning("Failed to persist tag cache for %s", key)
+
+
+def _load_disk_cache() -> None:
+    _ensure_cache_dir()
+    for path in TAG_CACHE_DIR.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        try:
+            key = TagCacheKey(
+                base=data["base"],
+                library_id=data["library_id"],
+                user_id=data["user_id"],
+                include_types=tuple(data.get("include_types", [])),
+            )
+            entry = TagCacheEntry(
+                tags=data.get("tags", []),
+                source=data.get("source", "cache"),
+                updated=data.get("updated", 0.0),
+                loading=False,
+                error=data.get("error"),
+            )
+            _TAG_CACHE[key] = entry
+        except KeyError:
+            continue
+
+
+_load_disk_cache()
 
 
 def _iter_tag_values(value: Any) -> List[str]:
@@ -259,6 +332,7 @@ def _schedule_tag_refresh(
             entry.loading = False
             _TAG_PROGRESS.pop(key, None)
         _set_refreshing(key, False)
+        _persist_cache_entry(key, entry)
 
     thread = threading.Thread(
         target=_worker, daemon=True, name=f"tag-refresh-{key.library_id}"
@@ -553,7 +627,7 @@ def discover_tags(
         user_id,
     )
     fields = ["TagItems", "Tags", "InheritedTags", "Type"]
-    fetch_limit = 500
+    fetch_limit = AGGREGATE_FETCH_LIMIT
     tag_counts, canonical_names, total_processed = aggregate_tags_from_items(
         base,
         api_key,

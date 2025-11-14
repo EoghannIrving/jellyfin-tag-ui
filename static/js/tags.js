@@ -277,6 +277,9 @@ function showTagPendingNotice(message) {
   const messageText = document.createElement("span");
   messageText.textContent = message || "Gathering tags, please try again shortly.";
   notice.appendChild(messageText);
+  const progressEl = document.createElement("div");
+  progressEl.className = "tag-progress";
+  notice.appendChild(progressEl);
   const button = document.createElement("button");
   button.type = "button";
   button.className = "tag-pending-retry";
@@ -309,7 +312,9 @@ function showTagPendingNotice(message) {
         };
         try {
           const status = await api("/api/tags/status", body);
-          messageText.textContent = `Gathering tags… processed ${status.processed} items over ${status.pages} pages`;
+          const text = `Gathering tags… processed ${status.processed} items across ${status.pages} pages`;
+          messageText.textContent = text;
+          progressEl.textContent = `Processed ${status.processed} items (pages ${status.pages})`;
           if (status.lastUpdated && status.lastUpdated !== lastStatusTimestamp) {
             lastStatusTimestamp = status.lastUpdated;
             clearTagPendingNotice();
@@ -317,6 +322,7 @@ function showTagPendingNotice(message) {
           }
         } catch (error) {
           messageText.textContent = "Gathering tags, please try again shortly.";
+          progressEl.textContent = "";
         }
       }, 2500);
     }
