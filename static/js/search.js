@@ -471,7 +471,36 @@ function buildSearchQueryKey(body) {
   });
 }
 
-export async function search({ startIndex, reset = false } = {}) {
+const PREFETCH_POLL_INTERVAL = 1500;
+const PREFETCH_POLL_TIMEOUT = 120000;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollPrefetchJob(jobId) {
+  const start = Date.now();
+  const url = `/api/items/prefetch/${encodeURIComponent(jobId)}`;
+  while (true) {
+    if (Date.now() - start > PREFETCH_POLL_TIMEOUT) {
+      throw new Error("Prefetch job timed out");
+    }
+    await delay(PREFETCH_POLL_INTERVAL);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    const payload = await response.json();
+    if (payload.status === "completed") {
+      return;
+    }
+    if (payload.status === "failed") {
+      throw new Error(payload.error || "Prefetch job failed");
+    }
+  }
+}
+
+export async function search({ startIndex, reset = false, prefetchAttempted = false } = {}) {
   const validationMessage = validateServerConfig();
   if (validationMessage) {
     setHtml("resultSummary", escapeHtml(validationMessage));
@@ -506,7 +535,29 @@ export async function search({ startIndex, reset = false } = {}) {
   }
 
   try {
-    const data = await api("/api/items", body);
+    const response = await fetch("/api/items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (response.status === 202) {
+      if (prefetchAttempted) {
+        const payload = await response.json();
+        throw new Error(payload.message || "Prefetch job still running");
+      }
+      const payload = await response.json();
+      setHtml(
+        "resultSummary",
+        `Preparing filtered list (job ${payload.jobId}); please wait…`,
+      );
+      setHtml("results", '<div class="results-loading">Prefetching results…</div>');
+      await pollPrefetchJob(payload.jobId);
+      return search({ startIndex: targetStart, reset: false, prefetchAttempted: true });
+    }
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
     const sortKey = body.sortOption || getSelectedSortOptionKey();
     let items = data.Items || [];
     items = applyClientSort(items, sortKey);
